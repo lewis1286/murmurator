@@ -1,0 +1,21 @@
+# Build artifacts
+build/
+*.bin
+*.elf
+*.hex
+*.map
+*.o
+*.d
+*.lst
+
+# IDE
+.vscode/settings.json
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Debug
+*.dSYM/
