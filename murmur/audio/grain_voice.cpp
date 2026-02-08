@@ -91,6 +91,11 @@ float GrainVoice::GetEnvelopeValue(float phase) const {
 
 float GrainVoice::ReadBufferInterpolated(const float* buffer, size_t buffer_size,
                                           float index) const {
+    // Guard against non-finite values to avoid infinite loops
+    if (!std::isfinite(index)) {
+        return 0.0f;
+    }
+
     // Wrap index to buffer size
     while (index < 0.0f) index += static_cast<float>(buffer_size);
     while (index >= static_cast<float>(buffer_size)) index -= static_cast<float>(buffer_size);

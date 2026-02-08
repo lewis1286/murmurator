@@ -99,7 +99,9 @@ int main(void) {
     sample_rate = patch.AudioSampleRate();
 
     // Initialize audio
+#ifndef MURMUR_UI_ONLY
     grain_pool.Init();
+#endif
 
     // Initialize boids
     flock.Init(num_boids);
@@ -111,14 +113,18 @@ int main(void) {
     boids_params.max_force = 0.005f;
 
     // Initialize scheduler
+#ifndef MURMUR_UI_ONLY
     scheduler.Init(sample_rate);
+#endif
 
     // Initialize UI
     display.Init(&patch);
     led_grid.Init(&patch);
 
     patch.StartAdc();
+#ifndef MURMUR_UI_ONLY
     patch.StartAudio(AudioCallback);
+#endif
 
     while (1) {
         UpdateControls();

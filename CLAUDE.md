@@ -14,13 +14,25 @@ All 5 phases implemented and building successfully:
 ## Quick Start
 
 ```bash
-# Build
+# Full build (audio + UI)
 cd murmur
 make clean && make
+
+# UI-only build (no audio processing, for testing OLED/LEDs/knobs/encoder)
+make clean && make ui-only
 
 # Flash (put Daisy in DFU mode: hold BOOT, press RESET)
 make program-dfu
 ```
+
+### UI-Only Mode
+
+Build with `make ui-only` to skip audio initialization (`grain_pool`, `scheduler`, `StartAudio`). This uses the `MURMUR_UI_ONLY` preprocessor flag. UI-only mode is useful for:
+- Testing OLED display, LED grid, knobs, encoder, and gates without audio
+- Debugging boid simulation behavior in isolation
+- Faster iteration on UI changes
+
+In UI-only mode, the waveform page shows a flat line (buffer stays zeroed). Always `make clean` when switching between full and UI-only builds.
 
 ## Project Structure
 
@@ -99,6 +111,21 @@ murmurator/
 | SRAM | 57KB | 512KB | 11% |
 | SDRAM | 750KB | 64MB | 1.1% |
 
+## Build Modes
+
+| Mode | Command | What runs |
+|------|---------|-----------|
+| Full | `make clean && make` | Audio callback + boids + UI |
+| UI-only | `make clean && make ui-only` | Boids + UI only (no audio) |
+
+The `ui-only` target sets `-DMURMUR_UI_ONLY`, which guards `grain_pool.Init()`, `scheduler.Init()`, and `patch.StartAudio()` behind `#ifndef MURMUR_UI_ONLY` in `MurmurBoids.cpp`.
+
+## Bug Fixes
+
+### Edge Freeze Fix (WrapPosition)
+
+`BoidsFlock::WrapPosition` in `boids/boids.cpp` guards against `Inf`/`NaN` positions using `std::isfinite()`. Without this, a non-finite position value (from force math overflow) would cause the `while` wrap loops to never terminate, freezing the device. The fix resets non-finite positions to center `(0.5, 0.5)`.
+
 ## Testing Checklist
 
 ### Basic Functionality
@@ -122,6 +149,13 @@ murmurator/
 ### Recording
 - [ ] GATE_1 freezes buffer (grains loop same material)
 - [ ] Unfreezing resumes live recording
+
+### UI-Only Mode
+- [ ] `make clean && make ui-only` builds successfully
+- [ ] OLED displays boid animation (no audio needed)
+- [ ] Knobs, encoder, gates all respond
+- [ ] LED grid shows flock density
+- [ ] Device does not freeze at screen edges
 
 ---
 

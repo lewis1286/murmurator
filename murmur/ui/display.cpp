@@ -63,6 +63,15 @@ void Display::DrawBoid(const Boid& boid, bool highlight) {
     int x3 = x + static_cast<int>(cosf(angle - 2.5f) * size * 0.7f);
     int y3 = y + static_cast<int>(sinf(angle - 2.5f) * size * 0.7f);
 
+    // Clamp triangle vertices to display bounds.
+    // DrawLine uses uint_fast8_t params — negative values wrap to
+    // huge unsigned values, causing Bresenham to loop ~forever.
+    auto clampX = [](int v) { return v < 0 ? 0 : (v > 127 ? 127 : v); };
+    auto clampY = [](int v) { return v < 10 ? 10 : (v > 63 ? 63 : v); };
+    x1 = clampX(x1); y1 = clampY(y1);
+    x2 = clampX(x2); y2 = clampY(y2);
+    x3 = clampX(x3); y3 = clampY(y3);
+
     // Draw triangle (as three lines)
     patch_->display.DrawLine(x1, y1, x2, y2, true);
     patch_->display.DrawLine(x2, y2, x3, y3, true);

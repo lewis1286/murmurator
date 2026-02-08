@@ -1,4 +1,5 @@
 #include "boids.h"
+#include <cmath>
 
 namespace murmur {
 
@@ -72,11 +73,15 @@ void BoidsFlock::UpdateSpatialGrid() {
         int gx = static_cast<int>(boids_[i].position.x * GRID_SIZE);
         int gy = static_cast<int>(boids_[i].position.y * GRID_SIZE);
 
-        // Clamp to grid bounds
+        // Clamp to valid grid range [0, GRID_SIZE-1].
+        // C/C++ '%' on negative ints preserves the sign (-2 % 4 == -2, not 2),
+        // so a slightly negative position (from float drift) would produce a
+        // negative index. Casting that to size_t wraps to a huge value,
+        // causing an out-of-bounds array access and a hard fault / freeze.
         if (gx < 0) gx = 0;
-        if (gx >= static_cast<int>(GRID_SIZE)) gx = GRID_SIZE - 1;
+        if (gx >= static_cast<int>(GRID_SIZE)) gx = static_cast<int>(GRID_SIZE) - 1;
         if (gy < 0) gy = 0;
-        if (gy >= static_cast<int>(GRID_SIZE)) gy = GRID_SIZE - 1;
+        if (gy >= static_cast<int>(GRID_SIZE)) gy = static_cast<int>(GRID_SIZE) - 1;
 
         size_t& count = grid_counts_[gx][gy];
         if (count < MAX_BOIDS_PER_CELL) {
@@ -91,9 +96,15 @@ void BoidsFlock::GetNeighbors(size_t boid_idx, float radius,
     count = 0;
     const Vec2& pos = boids_[boid_idx].position;
 
-    // Determine which grid cells to check
+    // Determine which grid cells to check.
+    // Clamp base cell the same way as UpdateSpatialGrid to avoid
+    // negative indices from float edge cases.
     int gx = static_cast<int>(pos.x * GRID_SIZE);
     int gy = static_cast<int>(pos.y * GRID_SIZE);
+    if (gx < 0) gx = 0;
+    if (gx >= static_cast<int>(GRID_SIZE)) gx = static_cast<int>(GRID_SIZE) - 1;
+    if (gy < 0) gy = 0;
+    if (gy >= static_cast<int>(GRID_SIZE)) gy = static_cast<int>(GRID_SIZE) - 1;
 
     // Check 3x3 neighborhood of cells
     for (int dx = -1; dx <= 1; dx++) {
@@ -101,7 +112,7 @@ void BoidsFlock::GetNeighbors(size_t boid_idx, float radius,
             int cx = gx + dx;
             int cy = gy + dy;
 
-            // Wrap around
+            // Wrap neighborhood offsets into valid range
             if (cx < 0) cx += GRID_SIZE;
             if (cx >= static_cast<int>(GRID_SIZE)) cx -= GRID_SIZE;
             if (cy < 0) cy += GRID_SIZE;
@@ -201,11 +212,25 @@ Vec2 BoidsFlock::Cohesion(size_t boid_idx, const BoidsParams& params) {
     return steering * params.cohesion_weight;
 }
 
+// Debug: volatile so debugger can always read these at -O2
+volatile float dbg_pos_x, dbg_pos_y;
+
 void BoidsFlock::WrapPosition(Vec2& pos) {
-    if (pos.x < 0.0f) pos.x += 1.0f;
-    if (pos.x >= 1.0f) pos.x -= 1.0f;
-    if (pos.y < 0.0f) pos.y += 1.0f;
-    if (pos.y >= 1.0f) pos.y -= 1.0f;
+    dbg_pos_x = pos.x;
+    dbg_pos_y = pos.y;
+
+    // Guard against non-finite values to avoid infinite loops
+    if (!std::isfinite(pos.x) || !std::isfinite(pos.y)) {
+        pos.x = 0.5f;
+        pos.y = 0.5f;
+        return;
+    }
+
+    // Use while loops to handle any position value
+    while (pos.x < 0.0f) pos.x += 1.0f;
+    while (pos.x >= 1.0f) pos.x -= 1.0f;
+    while (pos.y < 0.0f) pos.y += 1.0f;
+    while (pos.y >= 1.0f) pos.y -= 1.0f;
 }
 
 void BoidsFlock::Update(float dt, const BoidsParams& params) {

@@ -68,6 +68,21 @@
       "type": "shell"
     },
     {
+      "command": "make clean;DEBUG=1 make ui-only",
+      "dependsOn": [
+        "build_libdaisy",
+        "build_daisysp"
+      ],
+      "label": "build_all_debug_ui_only",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "type": "shell"
+    },
+    {
       "command": "make program-dfu",
       "label": "program-dfu",
       "problemMatcher": [],
