@@ -1,15 +1,15 @@
-# Murmur Boids - Granular Synthesis Controlled by Flocking Algorithm
+# Murmur Boids - 3D Flocking Oscillator Synth
 
-A Daisy Patch module where a flock of boids controls granular synthesis parameters. Each boid represents a grain voice - its 2D position and velocity map to playback position, pitch, grain size, and stereo pan.
+A Daisy Patch module where a flock of 3D boids controls oscillator voices. Each boid is an always-on sine oscillator - its 3D position maps directly to audio parameters: **x = pan, y = frequency, z = amplitude**.
 
-## Current Status: COMPLETE ✓
+## Current Status
 
-All 5 phases implemented and building successfully:
-- ✓ Phase 1: Audio Infrastructure (circular buffer, delay)
-- ✓ Phase 2: Single Grain Engine (Hann envelope, pitch shifting)
-- ✓ Phase 3: Boids Simulation (flocking with spatial partitioning, OLED/LED viz)
-- ✓ Phase 4: Multi-Grain Polyphony (16 voices with voice stealing)
-- ✓ Phase 5: Integration (boids control grains via scheduler)
+- ✓ 3D boids simulation (Vec3, flocking with spatial partitioning)
+- ✓ Oscillator voices (DaisySP Oscillator, one per boid, equal-power panning)
+- ✓ OLED visualization (triangle size varies with z/amplitude)
+- ✓ Full and UI-only builds working
+
+Previous granular synthesis engine files (circular_buffer, grain_voice, grain_pool, scheduler) kept in repo for reference but removed from build.
 
 ## Quick Start
 
@@ -18,21 +18,19 @@ All 5 phases implemented and building successfully:
 cd murmur
 make clean && make
 
-# UI-only build (no audio processing, for testing OLED/LEDs/knobs/encoder)
+# UI-only build (no audio, for testing OLED/LEDs/knobs/encoder)
 make clean && make ui-only
 
 # Flash (put Daisy in DFU mode: hold BOOT, press RESET)
 make program-dfu
+
+# Flash using debugger probe
+make program
 ```
 
 ### UI-Only Mode
 
-Build with `make ui-only` to skip audio initialization (`grain_pool`, `scheduler`, `StartAudio`). This uses the `MURMUR_UI_ONLY` preprocessor flag. UI-only mode is useful for:
-- Testing OLED display, LED grid, knobs, encoder, and gates without audio
-- Debugging boid simulation behavior in isolation
-- Faster iteration on UI changes
-
-In UI-only mode, the waveform page shows a flat line (buffer stays zeroed). Always `make clean` when switching between full and UI-only builds.
+Build with `make ui-only` to skip audio initialization (oscillator voices, `StartAudio`). Uses `MURMUR_UI_ONLY` preprocessor flag. Always `make clean` when switching between full and UI-only builds.
 
 ## Project Structure
 
@@ -44,13 +42,15 @@ murmurator/
 │   ├── MurmurBoids.cpp           # Main application
 │   ├── Makefile                  # Build configuration
 │   ├── audio/
-│   │   ├── circular_buffer.h/.cpp # 4-second ring buffer in SDRAM
-│   │   ├── grain_voice.h/.cpp     # Single grain with Hann envelope
-│   │   └── grain_pool.h/.cpp      # 16-voice polyphony with stealing
+│   │   ├── osc_voice.h           # Oscillator voice (sine, equal-power pan)
+│   │   ├── circular_buffer.h/.cpp # (legacy, not in build)
+│   │   ├── grain_voice.h/.cpp     # (legacy, not in build)
+│   │   └── grain_pool.h/.cpp      # (legacy, not in build)
 │   ├── boids/
-│   │   ├── vec2.h                 # 2D vector math
-│   │   ├── boids.h/.cpp           # Flock simulation
-│   │   └── scheduler.h/.cpp       # Maps boids to grain triggers
+│   │   ├── vec3.h                 # 3D vector math
+│   │   ├── vec2.h                 # (legacy, kept for reference)
+│   │   ├── boids.h/.cpp           # 3D flock simulation
+│   │   └── scheduler.h/.cpp       # (legacy, not in build)
 │   ├── ui/
 │   │   ├── display.h/.cpp         # OLED rendering (3 pages)
 │   │   └── led_grid.h/.cpp        # LED visualization
@@ -61,55 +61,52 @@ murmurator/
 
 ## Controls
 
-| Knob | Parameter | Description |
-|------|-----------|-------------|
-| CTRL_1 | Separation (0-2) | Spreads boids apart → wider spectral spread |
-| CTRL_2 | Cohesion (0-2) | Pulls boids together → focused, clustered sound |
-| CTRL_3 | Grain Density (1-50 Hz) | Base trigger rate for grains |
-| CTRL_4 | Pitch Range (0-24 st) | Y-axis maps to ± this many semitones |
+| Knob | Parameter | Range | Description |
+|------|-----------|-------|-------------|
+| CTRL_1 | Separation | 0-2 | Spreads boids apart → wider frequency/pan spread |
+| CTRL_2 | Cohesion | 0-2 | Pulls boids together → focused, unison-like sound |
+| CTRL_3 | Freq Range | 50-800 Hz | Controls frequency spread of oscillators |
+| CTRL_4 | Alignment | 0-2 | Velocity alignment → synchronized movement |
 
 | Gate | Function |
 |------|----------|
-| GATE_1 | Freeze/unfreeze buffer (toggle recording) |
+| GATE_1 | (reserved) |
 | GATE_2 | Scatter flock (randomize all boid positions) |
 
 | Encoder | Function |
 |---------|----------|
-| Rotate | Change number of boids (4-16) |
+| Rotate | Change number of boids/voices (4-16) |
 | Press | Cycle display pages |
-| Long press | Toggle recording |
 
 ## Display Pages
 
-1. **Flock View** - Visual boid simulation on OLED
-2. **Parameters** - Current parameter values
-3. **Waveform** - Audio buffer visualization
+1. **Flock View** - Boid triangles on OLED; triangle size varies with z (amplitude)
+2. **Parameters** - Current control values and mapping info
+3. **Waveform** - Real-time summed oscillator output
 
 ## How It Works
 
-### Boid → Grain Mapping
-| Boid Property | Grain Parameter |
-|---------------|-----------------|
-| position.x | Buffer playback position (0-100%) |
-| position.y | Pitch (±pitch_range semitones) |
-| velocity magnitude | Grain size (faster = smaller grains) |
-| velocity angle | Stereo pan (-1 to +1) |
+### 3D Boid → Oscillator Mapping
+| Boid Axis | Audio Param | Range | Formula |
+|-----------|------------|-------|---------|
+| x (0-1) | Stereo pan | L to R | `pan = x * 2 - 1` |
+| y (0-1) | Frequency | 200 + y * freq_range Hz | `freq = FREQ_MIN + y * freq_range` |
+| z (0-1) | Amplitude | 0 to max_amp/num_boids | `amp = z * MAX_AMP / num_boids` |
 
 ### Audio Signal Flow
-1. Stereo input mixed to mono → written to 4-second circular buffer
-2. Boids simulation runs at 60fps
-3. Each boid has its own trigger timer (faster boids trigger more often)
-4. When triggered, boid state maps to GrainParams
-5. 16-voice grain pool plays grains with Hann envelope
-6. Output mixed 50/50 dry/wet
+1. Boids simulation runs at ~60fps (16ms tick)
+2. Each boid's 3D position maps to its oscillator's freq/amp/pan
+3. Parameters smoothed via one-pole filter to avoid clicks
+4. Audio callback sums all active oscillators per sample
+5. Equal-power panning: `gain_l = cos(pan * PI/2) * amp`, `gain_r = sin(pan * PI/2) * amp`
 
 ## Memory Usage
 
 | Region | Used | Total | % |
 |--------|------|-------|---|
-| FLASH | 105KB | 128KB | 80.7% |
-| SRAM | 57KB | 512KB | 11% |
-| SDRAM | 750KB | 64MB | 1.1% |
+| FLASH | 105KB | 128KB | 80.3% |
+| SRAM | 57KB | 512KB | 10.9% |
+| SDRAM | 0 | 64MB | 0% |
 
 ## Build Modes
 
@@ -118,44 +115,52 @@ murmurator/
 | Full | `make clean && make` | Audio callback + boids + UI |
 | UI-only | `make clean && make ui-only` | Boids + UI only (no audio) |
 
-The `ui-only` target sets `-DMURMUR_UI_ONLY`, which guards `grain_pool.Init()`, `scheduler.Init()`, and `patch.StartAudio()` behind `#ifndef MURMUR_UI_ONLY` in `MurmurBoids.cpp`.
-
 ## Bug Fixes
 
 ### Edge Freeze Fix (WrapPosition)
 
-`BoidsFlock::WrapPosition` in `boids/boids.cpp` guards against `Inf`/`NaN` positions using `std::isfinite()`. Without this, a non-finite position value (from force math overflow) would cause the `while` wrap loops to never terminate, freezing the device. The fix resets non-finite positions to center `(0.5, 0.5)`.
+`BoidsFlock::WrapPosition` in `boids/boids.cpp` guards against `Inf`/`NaN` positions using `std::isfinite()` on all three axes. Resets non-finite positions to center `(0.5, 0.5, 0.5)`.
 
-## Testing Checklist
+### DrawLine Unsigned Overflow
 
-### Basic Functionality
-- [ ] Audio passes through (dry signal audible)
-- [ ] Grains triggered (hear granular texture)
-- [ ] OLED displays boid animation
-- [ ] Knobs respond smoothly
+libDaisy's `DrawLine` uses `uint_fast8_t` (= `uint32_t` on ARM). Negative coordinates wrap to ~4 billion, causing Bresenham to loop forever. All triangle vertices are clamped before drawing.
 
-### Boid Behavior
-- [ ] Separation knob spreads boids apart visually
-- [ ] Cohesion knob clusters boids together
-- [ ] Encoder changes boid count (visible on OLED)
-- [ ] GATE_2 scatters flock (boids randomize positions)
+## Hardware Testing
 
-### Audio Behavior
-- [ ] Separation creates wider spectral spread
-- [ ] Cohesion creates focused sound
-- [ ] Density knob changes grain rate
-- [ ] Pitch range affects pitch variation
+### Test 1: UI-Only Smoke Test
+Flash: `make clean && make ui-only && make program`
 
-### Recording
-- [ ] GATE_1 freezes buffer (grains loop same material)
-- [ ] Unfreezing resumes live recording
+1. **OLED boots** - "MURMUR BOIDS" title visible, boid triangles moving
+2. **Variable triangle size** - triangles should be different sizes (z-axis controls size, range 2-6px). Watch for a few seconds to confirm sizes change as boids move
+3. **Encoder rotate** - turn encoder, boid count (shown top-right) changes between 4-16. Visible boids should match the count
+4. **Encoder press** - cycles through 3 pages: Flock View → Parameters → Waveform → back to Flock View
+5. **CTRL_1 (Separation)** - turn full CW, boids should spread apart on screen. Turn full CCW, boids cluster
+6. **CTRL_2 (Cohesion)** - turn full CW, boids should cluster tightly. Turn full CCW, loose flock
+7. **CTRL_4 (Alignment)** - turn full CW, boids align velocities (move in same direction). Turn full CCW, more chaotic movement
+8. **GATE_2 trigger** - send a gate pulse, all boids should jump to random positions
+9. **Edge stability** - let it run for 2+ minutes. No freezes, no stuck boids, triangles stay within the border rectangle
+10. **Parameters page** - shows Sep/Coh/Frq/Ali values, boid count, and "x:pan y:freq z:amp" mapping label
 
-### UI-Only Mode
-- [ ] `make clean && make ui-only` builds successfully
-- [ ] OLED displays boid animation (no audio needed)
-- [ ] Knobs, encoder, gates all respond
-- [ ] LED grid shows flock density
-- [ ] Device does not freeze at screen edges
+### Test 2: Full Audio Build
+Flash: `make clean && make && make program-dfu`
+
+1. **Startup drone** - immediately hear a chord-like drone from outputs 1+2 (8 sine oscillators at different frequencies). No input signal needed
+2. **Stereo field** - plug in headphones or monitor L+R. Sound should have width - not mono. As boids move on x-axis, individual tones drift L/R
+3. **CTRL_3 (Freq Range)** - turn full CCW (50Hz range): tight cluster of frequencies, nearly unison. Turn full CW (800Hz range): wide spread, dissonant chord
+4. **CTRL_1 (Separation) + listen** - high separation → boids spread → wider frequency intervals, more dissonant. Low separation → frequencies converge
+5. **CTRL_2 (Cohesion) + listen** - high cohesion → boids cluster → near-unison, beating/chorusing effect. Low cohesion → looser, more varied
+6. **CTRL_4 (Alignment) + listen** - high alignment → boids move together → more stable drone. Low alignment → more chaotic parameter changes
+7. **Encoder boid count** - rotate to change 4→16 voices. Fewer voices = sparser, individual tones audible. More voices = denser, richer texture. Listen for clicks during count changes (should be smooth due to amplitude fade)
+8. **GATE_2 scatter** - trigger gate, hear all frequencies/pans/amplitudes jump to new random values. Should be a sudden dramatic shift in the sound
+9. **Amplitude variation** - z-axis controls volume per voice. Watch OLED: larger triangles = louder voices. The overall level should stay reasonable (MAX_AMP_TOTAL = 0.8 divided across all voices)
+10. **Waveform page** - press encoder to page 3. Should show a live waveform of the summed oscillator output (not a flat line)
+
+### Test 3: Stability and Edge Cases
+1. **Rapid encoder spinning** - quickly spin encoder between 4-16 and back. No audio glitches, no freezes
+2. **All knobs at extremes** - set all 4 knobs fully CW, then all fully CCW. No crashes or audio blowups
+3. **Rapid gate triggers** - send fast gate pulses to GATE_2 (~10Hz). Boids scatter repeatedly without freezing
+4. **Long run** - leave running for 10+ minutes with knobs at moderate positions. Verify no drift, no freeze, no audio degradation
+5. **Outputs 3+4** - should pass through inputs 3+4 unchanged (audio passthrough on channels 3-4)
 
 ---
 
@@ -181,172 +186,6 @@ MyDaisyProject/                    # Your new repository root
 └── README.md                     # Repository overview
 ```
 
-## Step-by-Step Implementation Plan
-
-### Phase 1: Repository Setup
-
-1. **Create new repository**
-   - Create a new directory for your project
-   - Initialize git repository: `git init`
-   - Create basic README.md
-
-2. **Add library dependencies as git submodules**
-   - Add libDaisy: `git submodule add https://github.com/electro-smith/libDaisy`
-   - Add DaisySP: `git submodule add https://github.com/electro-smith/DaisySP`
-   - Create `.gitmodules` file (automatically created by submodule commands)
-
-3. **Build the libraries**
-   - Build libDaisy: `cd libDaisy && make`
-   - Build DaisySP: `cd DaisySP && make`
-
-### Phase 2: Create Your Project Directory
-
-4. **Create project folder**
-   - Create `HelloPatch/` directory at repository root
-   - This is where your actual program lives
-
-5. **Create the Makefile**
-   - Model after DaisyExamples `patch/lfo/Makefile` as template
-   - Key settings needed:
-     - `TARGET = HelloPatch` (your program name)
-     - `CPP_SOURCES = HelloPatch.cpp` (your source file)
-     - `LIBDAISY_DIR = ../libDaisy` (path from HelloPatch/ to libDaisy/)
-     - `DAISYSP_DIR = ../DaisySP` (path from HelloPatch/ to DaisySP/)
-     - `SYSTEM_FILES_DIR = $(LIBDAISY_DIR)/core`
-     - `include $(SYSTEM_FILES_DIR)/Makefile` (pulls in all build rules)
-
-### Phase 3: Create Your Code
-
-6. **Write HelloPatch.cpp**
-   - Model after `patch/lfo/lfo.cpp`
-   - Minimal "hello world" features:
-     - Initialize the hardware
-     - Blink an LED or light up the LED grid
-     - Display "Hello World" on the OLED screen
-     - Pass audio through (input to output)
-
-   Basic structure:
-   ```cpp
-   #include "daisysp.h"
-   #include "daisy_patch.h"
-
-   using namespace daisy;
-   using namespace daisysp;
-
-   DaisyPatch patch;
-
-   static void AudioCallback(AudioHandle::InputBuffer  in,
-                             AudioHandle::OutputBuffer out,
-                             size_t                    size)
-   {
-       // Process audio
-   }
-
-   int main(void)
-   {
-       patch.Init();
-       patch.StartAdc();
-       patch.StartAudio(AudioCallback);
-
-       while(1)
-       {
-           // Update display, etc.
-       }
-   }
-   ```
-
-### Phase 4: VSCode Configuration
-
-7. **Create `.vscode/` directory** inside `HelloPatch/`
-
-8. **Create `tasks.json`**
-   - Copy from DaisyExamples `patch/lfo/.vscode/tasks.json`
-   - Update library paths: change `../../libDaisy` to `../libDaisy` (since you're one level shallower)
-   - Update library paths: change `../../DaisySP` to `../DaisySP`
-   - Key tasks you need:
-     - `build` - Compile the project
-     - `build_and_program_dfu` - Build and flash via USB (DFU mode)
-     - `build_libdaisy` - Build the library
-     - `build_daisysp` - Build the DSP library
-
-9. **Create `c_cpp_properties.json`**
-   - Copy from DaisyExamples `patch/lfo/.vscode/c_cpp_properties.json`
-   - Update include paths to `../libDaisy/**` and `../DaisySP/**`
-   - This helps VSCode IntelliSense find the header files
-
-10. **Copy `STM32H750x.svd`**
-    - This file provides hardware register definitions for debugging
-    - Copy from any example project's `.vscode/` folder (e.g., `patch/lfo/.vscode/STM32H750x.svd`)
-
-11. **Create `launch.json`** (optional, for debugging)
-    - Only needed if you plan to use a debugger (ST-Link, J-Link)
-    - Can skip for initial development
-
-### Phase 5: Build & Flash
-
-12. **Test the build**
-    - From `HelloPatch/` directory: `make clean && make`
-    - Should produce `build/HelloPatch.bin` file
-
-13. **Flash to hardware**
-    - Put Daisy Patch in DFU mode (hold BOOT button, press RESET)
-    - In VSCode: Run task "build_and_program_dfu" (Cmd+Shift+P → "Tasks: Run Task")
-    - Or from terminal: `make program-dfu`
-
-### Phase 6: Version Control
-
-14. **Create `.gitignore`**
-    - Ignore `build/` directories
-    - Ignore `*.bin`, `*.elf`, `*.hex` files
-    - Ignore other build artifacts
-
-    Example:
-    ```
-    build/
-    *.bin
-    *.elf
-    *.hex
-    *.map
-    *.o
-    *.d
-    .DS_Store
-    ```
-
-15. **Initial commit**
-    - Commit your code, Makefile, and VSCode configs
-    - The submodules (libDaisy, DaisySP) are tracked by reference only
-
-## Key Differences from DaisyExamples Structure
-
-| DaisyExamples | Your Standalone Project |
-|---------------|------------------------|
-| `patch/lfo/` is 2 levels deep | `HelloPatch/` is 1 level deep |
-| `../../libDaisy` in Makefile | `../libDaisy` in Makefile |
-| Many example projects | Single focused project |
-| Examples repo structure | Clean standalone repo |
-
-## Hardware Flashing Methods
-
-- **DFU (USB)**: `make program-dfu` - Requires BOOT button hold
-- **ST-Link/J-Link**: `make program` - Requires hardware debugger
-- DFU is easier for beginners, no extra hardware needed
-
-## Critical Files Summary
-
-**Must have:**
-- `HelloPatch.cpp` - Your code
-- `Makefile` - Build instructions
-- `libDaisy/` and `DaisySP/` - Libraries (as git submodules)
-
-**Strongly recommended:**
-- `.vscode/tasks.json` - Build/flash commands
-- `.vscode/c_cpp_properties.json` - IDE support
-- `.gitignore` - Keep repo clean
-
-**Optional:**
-- `.vscode/launch.json` - For debugging
-- `.vscode/STM32H750x.svd` - For debugging
-
 ## Daisy Patch Hardware Reference
 
 ### Available I/O:
@@ -367,19 +206,11 @@ MyDaisyProject/                    # Your new repository root
 
 ### Reading Hardware:
 ```cpp
-// Update controls
 patch.ProcessAnalogControls();
 patch.ProcessDigitalControls();
-
-// Read knobs (0-1 range)
 float knob_value = patch.GetKnobValue(DaisyPatch::CTRL_1);
-
-// Read gates
 bool gate = patch.gate_input[0].Trig();
-
-// Read encoder
 int32_t increment = patch.encoder.Increment();
-bool button_pressed = patch.encoder.FallingEdge();
 ```
 
 ### Audio Callback:
@@ -395,7 +226,3 @@ static void AudioCallback(AudioHandle::InputBuffer  in,
     }
 }
 ```
-
-## Next Steps
-
-Once you've copied this file to your new project, we can work through each phase step by step.

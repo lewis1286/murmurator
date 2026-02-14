@@ -33,7 +33,7 @@ void Display::DrawTitle(const char* title) {
 }
 
 void Display::DrawBoid(const Boid& boid, bool highlight) {
-    // Map 0-1 position to display coordinates
+    // Map x-y position to display coordinates
     // OLED is 128x64, reserve top 10 pixels for title
     int x = static_cast<int>(boid.position.x * 127);
     int y = 10 + static_cast<int>(boid.position.y * 53);
@@ -44,12 +44,13 @@ void Display::DrawBoid(const Boid& boid, bool highlight) {
     if (y < 10) y = 10;
     if (y > 63) y = 63;
 
-    // Calculate heading angle
-    float angle = boid.velocity.Angle();
+    // Calculate heading angle from x-y velocity
+    float angle = boid.velocity.AngleXY();
 
-    // Draw as small triangle pointing in direction of travel
-    // Triangle size
-    float size = highlight ? 4.0f : 3.0f;
+    // Triangle size varies with z (amplitude): louder = bigger
+    // z ranges 0-1, map to triangle size 2-6 pixels
+    float size = 2.0f + boid.position.z * 4.0f;
+    if (highlight) size += 1.0f;
 
     // Front point
     int x1 = x + static_cast<int>(cosf(angle) * size);
@@ -64,7 +65,7 @@ void Display::DrawBoid(const Boid& boid, bool highlight) {
     int y3 = y + static_cast<int>(sinf(angle - 2.5f) * size * 0.7f);
 
     // Clamp triangle vertices to display bounds.
-    // DrawLine uses uint_fast8_t params — negative values wrap to
+    // DrawLine uses uint_fast8_t params -- negative values wrap to
     // huge unsigned values, causing Bresenham to loop ~forever.
     auto clampX = [](int v) { return v < 0 ? 0 : (v > 127 ? 127 : v); };
     auto clampY = [](int v) { return v < 10 ? 10 : (v > 63 ? 63 : v); };
@@ -104,7 +105,8 @@ void Display::DrawFlockView(const BoidsFlock& flock, const BoidsParams& params) 
     Update();
 }
 
-void Display::DrawParameters(const BoidsParams& params, size_t num_boids, bool recording) {
+void Display::DrawParameters(const BoidsParams& params, size_t num_boids,
+                              float freq_range) {
     Clear();
     DrawTitle("MURMUR PARAMS");
 
@@ -115,19 +117,19 @@ void Display::DrawParameters(const BoidsParams& params, size_t num_boids, bool r
     snprintf(str, sizeof(str), "Sep: %.2f", static_cast<double>(params.separation_weight));
     patch_->display.WriteString(str, Font_6x8, true);
 
-    // Alignment
-    patch_->display.SetCursor(64, 12);
-    snprintf(str, sizeof(str), "Ali: %.2f", static_cast<double>(params.alignment_weight));
-    patch_->display.WriteString(str, Font_6x8, true);
-
     // Cohesion
-    patch_->display.SetCursor(0, 22);
+    patch_->display.SetCursor(64, 12);
     snprintf(str, sizeof(str), "Coh: %.2f", static_cast<double>(params.cohesion_weight));
     patch_->display.WriteString(str, Font_6x8, true);
 
-    // Perception
+    // Freq Range
+    patch_->display.SetCursor(0, 22);
+    snprintf(str, sizeof(str), "Frq: %.0fHz", static_cast<double>(freq_range));
+    patch_->display.WriteString(str, Font_6x8, true);
+
+    // Alignment
     patch_->display.SetCursor(64, 22);
-    snprintf(str, sizeof(str), "Rad: %.2f", static_cast<double>(params.perception_radius));
+    snprintf(str, sizeof(str), "Ali: %.2f", static_cast<double>(params.alignment_weight));
     patch_->display.WriteString(str, Font_6x8, true);
 
     // Number of boids
@@ -135,13 +137,9 @@ void Display::DrawParameters(const BoidsParams& params, size_t num_boids, bool r
     snprintf(str, sizeof(str), "Boids: %d", static_cast<int>(num_boids));
     patch_->display.WriteString(str, Font_6x8, true);
 
-    // Recording status
-    patch_->display.SetCursor(64, 36);
-    if (recording) {
-        patch_->display.WriteString("REC", Font_6x8, true);
-    } else {
-        patch_->display.WriteString("FROZEN", Font_6x8, true);
-    }
+    // Mapping info
+    patch_->display.SetCursor(0, 46);
+    patch_->display.WriteString("x:pan y:freq z:amp", Font_6x8, true);
 
     // Page indicator
     patch_->display.SetCursor(0, 54);
@@ -150,28 +148,21 @@ void Display::DrawParameters(const BoidsParams& params, size_t num_boids, bool r
     Update();
 }
 
-void Display::DrawWaveform(const float* buffer, size_t size, size_t read_pos) {
+void Display::DrawWaveform(const float* buffer, size_t size) {
     Clear();
     DrawTitle("MURMUR WAVE");
 
-    // Draw waveform from buffer
-    // Sample 128 points across the display
+    // Draw waveform from display buffer (captured from audio output)
     int prev_y = 37;
 
-    for (int x = 0; x < 128; x++) {
-        // Map x to buffer position (look back from read_pos)
-        size_t samples_back = (size * x) / 128;
-        size_t idx = (read_pos + size - samples_back) % size;
-
-        // Map sample to y coordinate
-        float sample = buffer[idx];
-        int y = 37 + static_cast<int>(sample * 26);  // 37 is center, ±26 pixels
+    for (size_t x = 0; x < size && x < 128; x++) {
+        float sample = buffer[x];
+        int y = 37 + static_cast<int>(sample * 26);  // 37 is center, +/-26 pixels
 
         // Clamp
         if (y < 10) y = 10;
         if (y > 63) y = 63;
 
-        // Draw line from previous point
         if (x > 0) {
             patch_->display.DrawLine(x - 1, prev_y, x, y, true);
         }

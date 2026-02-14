@@ -16,12 +16,17 @@ void BoidsFlock::Init(size_t num_boids) {
 
     // Initialize boids with random positions and velocities
     for (size_t i = 0; i < num_boids_; i++) {
-        boids_[i].position = Vec2(Random01(), Random01());
-        boids_[i].velocity = Vec2(
-            (Random01() - 0.5f) * 0.02f,
-            (Random01() - 0.5f) * 0.02f
+        boids_[i].position = Vec3(
+            Random01(),
+            Random01(),
+            0.3f + Random01() * 0.4f  // z starts in 0.3-0.7 range (moderate amplitude)
         );
-        boids_[i].acceleration = Vec2(0.0f, 0.0f);
+        boids_[i].velocity = Vec3(
+            (Random01() - 0.5f) * 0.02f,
+            (Random01() - 0.5f) * 0.02f,
+            (Random01() - 0.5f) * 0.01f  // Slower z movement
+        );
+        boids_[i].acceleration = Vec3(0.0f, 0.0f, 0.0f);
     }
 
     // Clear grid
@@ -39,12 +44,17 @@ void BoidsFlock::SetNumBoids(size_t num) {
 
     // Initialize any new boids
     for (size_t i = num_boids_; i < new_num; i++) {
-        boids_[i].position = Vec2(Random01(), Random01());
-        boids_[i].velocity = Vec2(
-            (Random01() - 0.5f) * 0.02f,
-            (Random01() - 0.5f) * 0.02f
+        boids_[i].position = Vec3(
+            Random01(),
+            Random01(),
+            0.3f + Random01() * 0.4f
         );
-        boids_[i].acceleration = Vec2(0.0f, 0.0f);
+        boids_[i].velocity = Vec3(
+            (Random01() - 0.5f) * 0.02f,
+            (Random01() - 0.5f) * 0.02f,
+            (Random01() - 0.5f) * 0.01f
+        );
+        boids_[i].acceleration = Vec3(0.0f, 0.0f, 0.0f);
     }
 
     num_boids_ = new_num;
@@ -52,10 +62,15 @@ void BoidsFlock::SetNumBoids(size_t num) {
 
 void BoidsFlock::Scatter() {
     for (size_t i = 0; i < num_boids_; i++) {
-        boids_[i].position = Vec2(Random01(), Random01());
-        boids_[i].velocity = Vec2(
+        boids_[i].position = Vec3(
+            Random01(),
+            Random01(),
+            0.2f + Random01() * 0.6f
+        );
+        boids_[i].velocity = Vec3(
             (Random01() - 0.5f) * 0.05f,
-            (Random01() - 0.5f) * 0.05f
+            (Random01() - 0.5f) * 0.05f,
+            (Random01() - 0.5f) * 0.02f
         );
     }
 }
@@ -68,16 +83,12 @@ void BoidsFlock::UpdateSpatialGrid() {
         }
     }
 
-    // Populate grid
+    // Populate grid (x-y projection only)
     for (size_t i = 0; i < num_boids_; i++) {
         int gx = static_cast<int>(boids_[i].position.x * GRID_SIZE);
         int gy = static_cast<int>(boids_[i].position.y * GRID_SIZE);
 
-        // Clamp to valid grid range [0, GRID_SIZE-1].
-        // C/C++ '%' on negative ints preserves the sign (-2 % 4 == -2, not 2),
-        // so a slightly negative position (from float drift) would produce a
-        // negative index. Casting that to size_t wraps to a huge value,
-        // causing an out-of-bounds array access and a hard fault / freeze.
+        // Clamp to valid grid range
         if (gx < 0) gx = 0;
         if (gx >= static_cast<int>(GRID_SIZE)) gx = static_cast<int>(GRID_SIZE) - 1;
         if (gy < 0) gy = 0;
@@ -94,11 +105,9 @@ void BoidsFlock::UpdateSpatialGrid() {
 void BoidsFlock::GetNeighbors(size_t boid_idx, float radius,
                                size_t* neighbors, size_t& count) {
     count = 0;
-    const Vec2& pos = boids_[boid_idx].position;
+    const Vec3& pos = boids_[boid_idx].position;
 
-    // Determine which grid cells to check.
-    // Clamp base cell the same way as UpdateSpatialGrid to avoid
-    // negative indices from float edge cases.
+    // Determine which grid cells to check (x-y plane)
     int gx = static_cast<int>(pos.x * GRID_SIZE);
     int gy = static_cast<int>(pos.y * GRID_SIZE);
     if (gx < 0) gx = 0;
@@ -118,12 +127,12 @@ void BoidsFlock::GetNeighbors(size_t boid_idx, float radius,
             if (cy < 0) cy += GRID_SIZE;
             if (cy >= static_cast<int>(GRID_SIZE)) cy -= GRID_SIZE;
 
-            // Check all boids in this cell
+            // Check all boids in this cell (use full 3D distance)
             for (size_t i = 0; i < grid_counts_[cx][cy]; i++) {
                 size_t other_idx = grid_[cx][cy][i];
                 if (other_idx == boid_idx) continue;
 
-                float dist = Vec2::Distance(pos, boids_[other_idx].position);
+                float dist = Vec3::Distance(pos, boids_[other_idx].position);
                 if (dist < radius && count < MAX_BOIDS) {
                     neighbors[count++] = other_idx;
                 }
@@ -132,8 +141,8 @@ void BoidsFlock::GetNeighbors(size_t boid_idx, float radius,
     }
 }
 
-Vec2 BoidsFlock::Separation(size_t boid_idx, const BoidsParams& params) {
-    Vec2 steering(0.0f, 0.0f);
+Vec3 BoidsFlock::Separation(size_t boid_idx, const BoidsParams& params) {
+    Vec3 steering(0.0f, 0.0f, 0.0f);
     size_t neighbors[MAX_BOIDS];
     size_t count = 0;
 
@@ -141,10 +150,10 @@ Vec2 BoidsFlock::Separation(size_t boid_idx, const BoidsParams& params) {
 
     if (count == 0) return steering;
 
-    const Vec2& pos = boids_[boid_idx].position;
+    const Vec3& pos = boids_[boid_idx].position;
 
     for (size_t i = 0; i < count; i++) {
-        Vec2 diff = pos - boids_[neighbors[i]].position;
+        Vec3 diff = pos - boids_[neighbors[i]].position;
         float dist = diff.Magnitude();
         if (dist > 0.0001f) {
             diff = diff / (dist * dist);  // Weight by inverse square distance
@@ -163,8 +172,8 @@ Vec2 BoidsFlock::Separation(size_t boid_idx, const BoidsParams& params) {
     return steering * params.separation_weight;
 }
 
-Vec2 BoidsFlock::Alignment(size_t boid_idx, const BoidsParams& params) {
-    Vec2 steering(0.0f, 0.0f);
+Vec3 BoidsFlock::Alignment(size_t boid_idx, const BoidsParams& params) {
+    Vec3 steering(0.0f, 0.0f, 0.0f);
     size_t neighbors[MAX_BOIDS];
     size_t count = 0;
 
@@ -172,7 +181,7 @@ Vec2 BoidsFlock::Alignment(size_t boid_idx, const BoidsParams& params) {
 
     if (count == 0) return steering;
 
-    Vec2 avg_velocity(0.0f, 0.0f);
+    Vec3 avg_velocity(0.0f, 0.0f, 0.0f);
 
     for (size_t i = 0; i < count; i++) {
         avg_velocity += boids_[neighbors[i]].velocity;
@@ -186,8 +195,8 @@ Vec2 BoidsFlock::Alignment(size_t boid_idx, const BoidsParams& params) {
     return steering * params.alignment_weight;
 }
 
-Vec2 BoidsFlock::Cohesion(size_t boid_idx, const BoidsParams& params) {
-    Vec2 steering(0.0f, 0.0f);
+Vec3 BoidsFlock::Cohesion(size_t boid_idx, const BoidsParams& params) {
+    Vec3 steering(0.0f, 0.0f, 0.0f);
     size_t neighbors[MAX_BOIDS];
     size_t count = 0;
 
@@ -195,7 +204,7 @@ Vec2 BoidsFlock::Cohesion(size_t boid_idx, const BoidsParams& params) {
 
     if (count == 0) return steering;
 
-    Vec2 center(0.0f, 0.0f);
+    Vec3 center(0.0f, 0.0f, 0.0f);
 
     for (size_t i = 0; i < count; i++) {
         center += boids_[neighbors[i]].position;
@@ -204,7 +213,7 @@ Vec2 BoidsFlock::Cohesion(size_t boid_idx, const BoidsParams& params) {
     center = center / static_cast<float>(count);
 
     // Desired velocity towards center
-    Vec2 desired = center - boids_[boid_idx].position;
+    Vec3 desired = center - boids_[boid_idx].position;
     desired.SetMagnitude(params.max_speed);
     steering = desired - boids_[boid_idx].velocity;
     steering.Limit(params.max_force);
@@ -212,17 +221,12 @@ Vec2 BoidsFlock::Cohesion(size_t boid_idx, const BoidsParams& params) {
     return steering * params.cohesion_weight;
 }
 
-// Debug: volatile so debugger can always read these at -O2
-volatile float dbg_pos_x, dbg_pos_y;
-
-void BoidsFlock::WrapPosition(Vec2& pos) {
-    dbg_pos_x = pos.x;
-    dbg_pos_y = pos.y;
-
+void BoidsFlock::WrapPosition(Vec3& pos) {
     // Guard against non-finite values to avoid infinite loops
-    if (!std::isfinite(pos.x) || !std::isfinite(pos.y)) {
+    if (!std::isfinite(pos.x) || !std::isfinite(pos.y) || !std::isfinite(pos.z)) {
         pos.x = 0.5f;
         pos.y = 0.5f;
+        pos.z = 0.5f;
         return;
     }
 
@@ -231,6 +235,8 @@ void BoidsFlock::WrapPosition(Vec2& pos) {
     while (pos.x >= 1.0f) pos.x -= 1.0f;
     while (pos.y < 0.0f) pos.y += 1.0f;
     while (pos.y >= 1.0f) pos.y -= 1.0f;
+    while (pos.z < 0.0f) pos.z += 1.0f;
+    while (pos.z >= 1.0f) pos.z -= 1.0f;
 }
 
 void BoidsFlock::Update(float dt, const BoidsParams& params) {
@@ -241,9 +247,9 @@ void BoidsFlock::Update(float dt, const BoidsParams& params) {
 
     // Apply flocking forces
     for (size_t i = 0; i < num_boids_; i++) {
-        Vec2 sep = Separation(i, params);
-        Vec2 ali = Alignment(i, params);
-        Vec2 coh = Cohesion(i, params);
+        Vec3 sep = Separation(i, params);
+        Vec3 ali = Alignment(i, params);
+        Vec3 coh = Cohesion(i, params);
 
         boids_[i].ApplyForce(sep);
         boids_[i].ApplyForce(ali);
@@ -255,7 +261,7 @@ void BoidsFlock::Update(float dt, const BoidsParams& params) {
         boids_[i].velocity += boids_[i].acceleration * dt;
         boids_[i].velocity.Limit(params.max_speed);
         boids_[i].position += boids_[i].velocity * dt;
-        boids_[i].acceleration = Vec2(0.0f, 0.0f);
+        boids_[i].acceleration = Vec3(0.0f, 0.0f, 0.0f);
 
         WrapPosition(boids_[i].position);
     }

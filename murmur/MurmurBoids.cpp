@@ -1,12 +1,10 @@
 #include "daisysp.h"
 #include "daisy_patch.h"
-#include "audio/circular_buffer.h"
-#include "audio/grain_pool.h"
+#include "audio/osc_voice.h"
 #include "boids/boids.h"
-#include "boids/scheduler.h"
 #include "ui/display.h"
 #include "ui/led_grid.h"
-#include <string>
+#include <cmath>
 
 using namespace daisy;
 using namespace daisysp;
@@ -14,35 +12,37 @@ using namespace daisysp;
 // Hardware
 DaisyPatch patch;
 
-// Audio
-murmur::CircularBuffer buffer;
-murmur::GrainPool grain_pool;
+// Oscillator voices (one per boid)
+murmur::OscVoice voices[murmur::MAX_BOIDS];
 
 // Boids
 murmur::BoidsFlock flock;
 murmur::BoidsParams boids_params;
-murmur::BoidScheduler scheduler;
-murmur::SchedulerParams sched_params;
 
 // UI
 murmur::Display display;
 murmur::LedGrid led_grid;
 
-// Control parameters (knobs)
+// Control parameters
 float separation_weight = 1.0f;   // CTRL_1
 float cohesion_weight = 1.0f;     // CTRL_2
-float grain_density = 10.0f;      // CTRL_3
-float pitch_range = 12.0f;        // CTRL_4
+float freq_range = 600.0f;        // CTRL_3: frequency spread in Hz
+float alignment_weight = 1.0f;    // CTRL_4
 
-// CV inputs
-float cv_position_offset = 0.0f;  // CV_1
-float cv_energy = 1.0f;           // CV_2
-float cv_grain_size = 100.0f;     // CV_3
-float cv_pitch_offset = 0.0f;     // CV_4
+// Audio parameters
+constexpr float FREQ_MIN = 200.0f;
+constexpr float FREQ_MAX = 800.0f;
+constexpr float MAX_AMP_TOTAL = 0.8f;  // Total max amplitude across all voices
 
 // State
 int num_boids = 8;
 float sample_rate = 48000.0f;
+
+// Waveform display buffer (captured from audio output)
+constexpr size_t WAVE_DISPLAY_SIZE = 128;
+float wave_display[WAVE_DISPLAY_SIZE];
+size_t wave_display_pos = 0;
+size_t wave_display_decimation = 0;
 
 // Timing
 uint32_t last_display_update = 0;
@@ -50,76 +50,74 @@ uint32_t last_boids_update = 0;
 constexpr uint32_t DISPLAY_UPDATE_MS = 33;
 constexpr uint32_t BOIDS_UPDATE_MS = 16;
 
-// Audio processing buffers
-float grain_out_l[48];  // Max block size
-float grain_out_r[48];
-
 void UpdateControls();
 void UpdateDisplay();
+void UpdateVoicesFromBoids();
 
+#ifndef MURMUR_UI_ONLY
 static void AudioCallback(AudioHandle::InputBuffer in,
                           AudioHandle::OutputBuffer out,
                           size_t size) {
-    // Update scheduler parameters from controls
-    sched_params.base_density = grain_density;
-    sched_params.pitch_range = pitch_range;
-    sched_params.position_offset = cv_position_offset;
-    sched_params.pitch_offset = cv_pitch_offset;
-    sched_params.size_base_ms = cv_grain_size;
-    sched_params.energy = cv_energy;
-    scheduler.SetParams(sched_params);
-
     for (size_t i = 0; i < size; i++) {
-        // Mix input to mono
-        float dry_in = (in[0][i] + in[1][i]) * 0.5f;
+        float sum_l = 0.0f;
+        float sum_r = 0.0f;
 
-        // Write to buffer
-        buffer.Write(dry_in);
+        for (size_t v = 0; v < static_cast<size_t>(num_boids); v++) {
+            sum_l += voices[v].ProcessLeft();
+            sum_r += voices[v].ProcessRight();
+        }
 
-        // Process scheduler (triggers grains based on boid states)
-        scheduler.Process(flock, grain_pool, buffer);
-
-        // Process grain pool (single sample)
-        float gl = 0.0f, gr = 0.0f;
-        grain_pool.Process(murmur::audio_buffer, murmur::BUFFER_SIZE,
-                          &gl, &gr, 1);
-
-        // Mix dry/wet
-        float mix = 0.5f;
-        out[0][i] = dry_in * (1.0f - mix) + gl * mix;
-        out[1][i] = dry_in * (1.0f - mix) + gr * mix;
+        out[0][i] = sum_l;
+        out[1][i] = sum_r;
         out[2][i] = in[2][i];
         out[3][i] = in[3][i];
+
+        // Capture samples for waveform display (decimated)
+        wave_display_decimation++;
+        if (wave_display_decimation >= 8) {
+            wave_display_decimation = 0;
+            wave_display[wave_display_pos] = (sum_l + sum_r) * 0.5f;
+            wave_display_pos = (wave_display_pos + 1) % WAVE_DISPLAY_SIZE;
+        }
     }
 }
+#endif
 
 int main(void) {
     patch.Init();
-    buffer.Init();
     sample_rate = patch.AudioSampleRate();
 
-    // Initialize audio
+    // Initialize oscillator voices
 #ifndef MURMUR_UI_ONLY
-    grain_pool.Init();
+    for (size_t i = 0; i < murmur::MAX_BOIDS; i++) {
+        voices[i].Init(sample_rate);
+    }
 #endif
 
     // Initialize boids
     flock.Init(num_boids);
     boids_params.separation_weight = separation_weight;
-    boids_params.alignment_weight = 1.0f;  // Fixed at 1.0 for natural behavior
+    boids_params.alignment_weight = alignment_weight;
     boids_params.cohesion_weight = cohesion_weight;
     boids_params.perception_radius = 0.25f;
     boids_params.max_speed = 0.1f;
     boids_params.max_force = 0.005f;
 
-    // Initialize scheduler
-#ifndef MURMUR_UI_ONLY
-    scheduler.Init(sample_rate);
-#endif
-
     // Initialize UI
     display.Init(&patch);
     led_grid.Init(&patch);
+
+    // Clear waveform display buffer
+    for (size_t i = 0; i < WAVE_DISPLAY_SIZE; i++) {
+        wave_display[i] = 0.0f;
+    }
+
+    // Activate initial voices
+#ifndef MURMUR_UI_ONLY
+    for (int i = 0; i < num_boids; i++) {
+        voices[i].SetActive(true);
+    }
+#endif
 
     patch.StartAdc();
 #ifndef MURMUR_UI_ONLY
@@ -136,6 +134,11 @@ int main(void) {
             float dt = static_cast<float>(now - last_boids_update) / 1000.0f;
             flock.Update(dt, boids_params);
             led_grid.UpdateFromFlock(flock);
+
+#ifndef MURMUR_UI_ONLY
+            UpdateVoicesFromBoids();
+#endif
+
             last_boids_update = now;
         }
 
@@ -147,60 +150,79 @@ int main(void) {
     }
 }
 
+void UpdateVoicesFromBoids() {
+    float max_amp_per_voice = MAX_AMP_TOTAL / static_cast<float>(num_boids);
+
+    for (int i = 0; i < num_boids; i++) {
+        const murmur::Boid& boid = flock.GetBoid(i);
+
+        // y -> frequency
+        float freq = FREQ_MIN + boid.position.y * freq_range;
+
+        // z -> amplitude
+        float amp = boid.position.z * max_amp_per_voice;
+
+        // x -> pan (-1 to +1)
+        float pan = boid.position.x * 2.0f - 1.0f;
+
+        voices[i].SetParams(freq, amp, pan);
+        voices[i].UpdateSmoothing();
+    }
+}
+
 void UpdateControls() {
     patch.ProcessAnalogControls();
     patch.ProcessDigitalControls();
 
     // === KNOBS ===
     // CTRL_1: Separation weight (0-2)
-    // Spreads grains across buffer/pitch
     separation_weight = patch.GetKnobValue(DaisyPatch::CTRL_1) * 2.0f;
     boids_params.separation_weight = separation_weight;
 
     // CTRL_2: Cohesion weight (0-2)
-    // Clusters grains together
     cohesion_weight = patch.GetKnobValue(DaisyPatch::CTRL_2) * 2.0f;
     boids_params.cohesion_weight = cohesion_weight;
 
-    // CTRL_3: Grain density (1-50 Hz base trigger rate)
-    grain_density = 1.0f + patch.GetKnobValue(DaisyPatch::CTRL_3) * 49.0f;
+    // CTRL_3: Frequency range (50-800 Hz spread)
+    freq_range = 50.0f + patch.GetKnobValue(DaisyPatch::CTRL_3) * 750.0f;
 
-    // CTRL_4: Pitch range (0-24 semitones)
-    pitch_range = patch.GetKnobValue(DaisyPatch::CTRL_4) * 24.0f;
-
-    // Note: CV inputs on Daisy Patch are normalled to knobs
-    // Additional CV modulation can be added via the controls array
-    // For now, set reasonable defaults for scheduler params not on knobs
-    cv_position_offset = 0.0f;  // Could add CV modulation here
-    cv_energy = 1.0f;           // Fixed energy for now
-    cv_grain_size = 80.0f;      // Fixed grain size base
-    cv_pitch_offset = 0.0f;     // No pitch offset
+    // CTRL_4: Alignment weight (0-2)
+    alignment_weight = patch.GetKnobValue(DaisyPatch::CTRL_4) * 2.0f;
+    boids_params.alignment_weight = alignment_weight;
 
     // === ENCODER ===
     // Rotation: Number of boids (4-16)
     int inc = patch.encoder.Increment();
     if (inc != 0) {
+#ifndef MURMUR_UI_ONLY
+        int old_num = num_boids;
+#endif
         num_boids += inc;
         if (num_boids < 4) num_boids = 4;
         if (num_boids > 16) num_boids = 16;
         flock.SetNumBoids(num_boids);
+
+#ifndef MURMUR_UI_ONLY
+        // Activate/deactivate voices as needed
+        if (num_boids > old_num) {
+            for (int i = old_num; i < num_boids; i++) {
+                voices[i].SetActive(true);
+            }
+        } else {
+            for (int i = num_boids; i < old_num; i++) {
+                voices[i].SetActive(false);
+            }
+        }
+#endif
     }
 
-    // Press: Cycle display page OR toggle recording
+    // Press: Cycle display page
     if (patch.encoder.RisingEdge()) {
         display.NextPage();
     }
 
-    // Long press (held): Toggle recording
-    if (patch.encoder.TimeHeldMs() > 500 && patch.encoder.FallingEdge()) {
-        buffer.SetRecording(!buffer.IsRecording());
-    }
-
     // === GATE INPUTS ===
-    // GATE_1: Freeze buffer (toggle recording)
-    if (patch.gate_input[0].Trig()) {
-        buffer.SetRecording(!buffer.IsRecording());
-    }
+    // GATE_1: Reserved (was buffer freeze, no longer needed)
 
     // GATE_2: Scatter flock (randomize positions)
     if (patch.gate_input[1].Trig()) {
@@ -215,12 +237,11 @@ void UpdateDisplay() {
             break;
 
         case murmur::DisplayPage::PARAMETERS:
-            display.DrawParameters(boids_params, num_boids, buffer.IsRecording());
+            display.DrawParameters(boids_params, num_boids, freq_range);
             break;
 
         case murmur::DisplayPage::WAVEFORM:
-            display.DrawWaveform(murmur::audio_buffer, murmur::BUFFER_SIZE,
-                                buffer.GetWritePosition());
+            display.DrawWaveform(wave_display, WAVE_DISPLAY_SIZE);
             break;
 
         default:

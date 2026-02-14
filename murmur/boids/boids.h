@@ -2,22 +2,22 @@
 #ifndef BOIDS_H
 #define BOIDS_H
 
-#include "vec2.h"
+#include "vec3.h"
 #include <cstdint>
 #include <cstddef>
 
 namespace murmur {
 
 constexpr size_t MAX_BOIDS = 16;
-constexpr size_t GRID_SIZE = 4;  // 4x4 spatial partitioning grid
+constexpr size_t GRID_SIZE = 4;  // 4x4 spatial partitioning grid (x-y plane)
 constexpr size_t MAX_BOIDS_PER_CELL = MAX_BOIDS;
 
 struct Boid {
-    Vec2 position;      // 0-1 range for both axes
-    Vec2 velocity;
-    Vec2 acceleration;
+    Vec3 position;      // 0-1 range for all axes (x=pan, y=freq, z=amp)
+    Vec3 velocity;
+    Vec3 acceleration;
 
-    void ApplyForce(const Vec2& force) {
+    void ApplyForce(const Vec3& force) {
         acceleration += force;
     }
 };
@@ -44,22 +44,22 @@ public:
     size_t GetNumBoids() const { return num_boids_; }
     const Boid& GetBoid(size_t index) const { return boids_[index]; }
 
-    // Get boid density in a grid cell (for LED visualization)
+    // Get boid density in a grid cell (for LED visualization, x-y projection)
     int GetCellDensity(size_t grid_x, size_t grid_y) const;
 
 private:
     void UpdateSpatialGrid();
-    Vec2 Separation(size_t boid_idx, const BoidsParams& params);
-    Vec2 Alignment(size_t boid_idx, const BoidsParams& params);
-    Vec2 Cohesion(size_t boid_idx, const BoidsParams& params);
-    void WrapPosition(Vec2& pos);
+    Vec3 Separation(size_t boid_idx, const BoidsParams& params);
+    Vec3 Alignment(size_t boid_idx, const BoidsParams& params);
+    Vec3 Cohesion(size_t boid_idx, const BoidsParams& params);
+    void WrapPosition(Vec3& pos);
     void GetNeighbors(size_t boid_idx, float radius, size_t* neighbors, size_t& count);
 
     Boid boids_[MAX_BOIDS];
     size_t num_boids_;
     bool initialized_;
 
-    // Spatial partitioning grid
+    // Spatial partitioning grid (x-y plane only; z proximity handled by 3D distance)
     size_t grid_[GRID_SIZE][GRID_SIZE][MAX_BOIDS_PER_CELL];
     size_t grid_counts_[GRID_SIZE][GRID_SIZE];
 

@@ -25,8 +25,9 @@ public:
     DisplayPage GetPage() const { return current_page_; }
 
     void DrawFlockView(const BoidsFlock& flock, const BoidsParams& params);
-    void DrawParameters(const BoidsParams& params, size_t num_boids, bool recording);
-    void DrawWaveform(const float* buffer, size_t size, size_t read_pos);
+    void DrawParameters(const BoidsParams& params, size_t num_boids,
+                        float freq_range);
+    void DrawWaveform(const float* buffer, size_t size);
 
     void Clear();
     void Update();
