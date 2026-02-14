@@ -48,7 +48,7 @@ size_t wave_display_decimation = 0;
 uint32_t last_display_update = 0;
 uint32_t last_boids_update = 0;
 constexpr uint32_t DISPLAY_UPDATE_MS = 33;
-constexpr uint32_t BOIDS_UPDATE_MS = 16;
+constexpr uint32_t BOIDS_UPDATE_MS = 2;
 
 void UpdateControls();
 void UpdateDisplay();
@@ -133,7 +133,6 @@ int main(void) {
         if (now - last_boids_update >= BOIDS_UPDATE_MS) {
             float dt = static_cast<float>(now - last_boids_update) / 1000.0f;
             flock.Update(dt, boids_params);
-            led_grid.UpdateFromFlock(flock);
 
 #ifndef MURMUR_UI_ONLY
             UpdateVoicesFromBoids();
@@ -142,8 +141,9 @@ int main(void) {
             last_boids_update = now;
         }
 
-        // Update display
+        // Update display and LEDs (visual rate)
         if (now - last_display_update >= DISPLAY_UPDATE_MS) {
+            led_grid.UpdateFromFlock(flock);
             UpdateDisplay();
             last_display_update = now;
         }

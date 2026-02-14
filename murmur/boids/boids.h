@@ -9,8 +9,7 @@
 namespace murmur {
 
 constexpr size_t MAX_BOIDS = 16;
-constexpr size_t GRID_SIZE = 4;  // 4x4 spatial partitioning grid (x-y plane)
-constexpr size_t MAX_BOIDS_PER_CELL = MAX_BOIDS;
+constexpr size_t LED_GRID_DIM = 4;  // 4x4 LED grid for density visualization
 
 struct Boid {
     Vec3 position;      // 0-1 range for all axes (x=pan, y=freq, z=amp)
@@ -45,23 +44,17 @@ public:
     const Boid& GetBoid(size_t index) const { return boids_[index]; }
 
     // Get boid density in a grid cell (for LED visualization, x-y projection)
+    // Computes directly from boid positions (no spatial grid needed)
     int GetCellDensity(size_t grid_x, size_t grid_y) const;
 
 private:
-    void UpdateSpatialGrid();
-    Vec3 Separation(size_t boid_idx, const BoidsParams& params);
-    Vec3 Alignment(size_t boid_idx, const BoidsParams& params);
-    Vec3 Cohesion(size_t boid_idx, const BoidsParams& params);
+    // Single-pass flocking: computes separation + alignment + cohesion in one neighbor traversal
+    Vec3 ApplyFlockingForces(size_t boid_idx, const BoidsParams& params);
     void WrapPosition(Vec3& pos);
-    void GetNeighbors(size_t boid_idx, float radius, size_t* neighbors, size_t& count);
 
     Boid boids_[MAX_BOIDS];
     size_t num_boids_;
     bool initialized_;
-
-    // Spatial partitioning grid (x-y plane only; z proximity handled by 3D distance)
-    size_t grid_[GRID_SIZE][GRID_SIZE][MAX_BOIDS_PER_CELL];
-    size_t grid_counts_[GRID_SIZE][GRID_SIZE];
 
     // Simple random number generator (LCG)
     uint32_t rng_state_;

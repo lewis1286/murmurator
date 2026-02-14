@@ -142,7 +142,7 @@ Flash: `make clean && make ui-only && make program`
 10. **Parameters page** - shows Sep/Coh/Frq/Ali values, boid count, and "x:pan y:freq z:amp" mapping label
 
 ### Test 2: Full Audio Build
-Flash: `make clean && make && make program-dfu`
+Flash: `make clean && make && make program`
 
 1. **Startup drone** - immediately hear a chord-like drone from outputs 1+2 (8 sine oscillators at different frequencies). No input signal needed
 2. **Stereo field** - plug in headphones or monitor L+R. Sound should have width - not mono. As boids move on x-axis, individual tones drift L/R

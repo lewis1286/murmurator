@@ -56,8 +56,8 @@ struct OscVoice {
 
     // Call once per audio block to smooth parameters (control rate)
     void UpdateSmoothing() {
-        // One-pole smoothing (coeff ~0.01 for ~30Hz control rate = smooth)
-        constexpr float coeff = 0.05f;
+        // One-pole smoothing (scaled for 500Hz boids update rate)
+        constexpr float coeff = 0.006f;
 
         current_freq += (target_freq - current_freq) * coeff;
         current_amp += (target_amp - current_amp) * coeff;
@@ -65,10 +65,10 @@ struct OscVoice {
 
         osc.SetFreq(current_freq);
 
-        // Equal-power panning
+        // Linear panning (wider stereo field than equal-power)
         float pan_norm = (current_pan + 1.0f) * 0.5f;  // 0-1 range
-        gain_l = cosf(pan_norm * (float)M_PI * 0.5f) * current_amp;
-        gain_r = sinf(pan_norm * (float)M_PI * 0.5f) * current_amp;
+        gain_l = (1.0f - pan_norm) * current_amp;
+        gain_r = pan_norm * current_amp;
     }
 
     // Process one sample, outputs left channel

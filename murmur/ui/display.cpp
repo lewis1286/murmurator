@@ -36,7 +36,7 @@ void Display::DrawBoid(const Boid& boid, bool highlight) {
     // Map x-y position to display coordinates
     // OLED is 128x64, reserve top 10 pixels for title
     int x = static_cast<int>(boid.position.x * 127);
-    int y = 10 + static_cast<int>(boid.position.y * 53);
+    int y = 63 - static_cast<int>(boid.position.y * 53);
 
     // Clamp to display bounds
     if (x < 0) x = 0;
@@ -45,7 +45,8 @@ void Display::DrawBoid(const Boid& boid, bool highlight) {
     if (y > 63) y = 63;
 
     // Calculate heading angle from x-y velocity
-    float angle = boid.velocity.AngleXY();
+    // Negate vy because screen-y is inverted (y increases downward on OLED)
+    float angle = atan2f(-boid.velocity.y, boid.velocity.x);
 
     // Triangle size varies with z (amplitude): louder = bigger
     // z ranges 0-1, map to triangle size 2-6 pixels

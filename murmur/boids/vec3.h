@@ -3,8 +3,20 @@
 #define VEC3_H
 
 #include <cmath>
+#include <cstdint>
 
 namespace murmur {
+
+// Quake-style fast inverse square root (~1-2% error, fine for steering forces)
+inline float FastInvSqrt(float x) {
+    float xhalf = 0.5f * x;
+    uint32_t i;
+    __builtin_memcpy(&i, &x, sizeof(i));
+    i = 0x5f3759df - (i >> 1);
+    __builtin_memcpy(&x, &i, sizeof(x));
+    x *= (1.5f - xhalf * x * x);  // One Newton-Raphson iteration
+    return x;
+}
 
 struct Vec3 {
     float x;
@@ -61,27 +73,30 @@ struct Vec3 {
     }
 
     Vec3 Normalized() const {
-        float mag = Magnitude();
-        if (mag < 0.0001f) return Vec3(0.0f, 0.0f, 0.0f);
-        return Vec3(x / mag, y / mag, z / mag);
+        float mag_sq = MagnitudeSquared();
+        if (mag_sq < 0.00000001f) return Vec3(0.0f, 0.0f, 0.0f);
+        float inv_mag = FastInvSqrt(mag_sq);
+        return Vec3(x * inv_mag, y * inv_mag, z * inv_mag);
     }
 
     void Normalize() {
-        float mag = Magnitude();
-        if (mag > 0.0001f) {
-            x /= mag;
-            y /= mag;
-            z /= mag;
+        float mag_sq = MagnitudeSquared();
+        if (mag_sq > 0.00000001f) {
+            float inv_mag = FastInvSqrt(mag_sq);
+            x *= inv_mag;
+            y *= inv_mag;
+            z *= inv_mag;
         }
     }
 
     void Limit(float max) {
         float mag_sq = MagnitudeSquared();
         if (mag_sq > max * max) {
-            float mag = sqrtf(mag_sq);
-            x = (x / mag) * max;
-            y = (y / mag) * max;
-            z = (z / mag) * max;
+            float inv_mag = FastInvSqrt(mag_sq);
+            float scale = max * inv_mag;
+            x *= scale;
+            y *= scale;
+            z *= scale;
         }
     }
 

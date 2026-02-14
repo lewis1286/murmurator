@@ -29,13 +29,6 @@ void BoidsFlock::Init(size_t num_boids) {
         boids_[i].acceleration = Vec3(0.0f, 0.0f, 0.0f);
     }
 
-    // Clear grid
-    for (size_t x = 0; x < GRID_SIZE; x++) {
-        for (size_t y = 0; y < GRID_SIZE; y++) {
-            grid_counts_[x][y] = 0;
-        }
-    }
-
     initialized_ = true;
 }
 
@@ -75,154 +68,71 @@ void BoidsFlock::Scatter() {
     }
 }
 
-void BoidsFlock::UpdateSpatialGrid() {
-    // Clear grid
-    for (size_t x = 0; x < GRID_SIZE; x++) {
-        for (size_t y = 0; y < GRID_SIZE; y++) {
-            grid_counts_[x][y] = 0;
-        }
-    }
+Vec3 BoidsFlock::ApplyFlockingForces(size_t boid_idx, const BoidsParams& params) {
+    const Vec3& pos = boids_[boid_idx].position;
+    const Vec3& vel = boids_[boid_idx].velocity;
+    float radius_sq = params.perception_radius * params.perception_radius;
 
-    // Populate grid (x-y projection only)
+    // Accumulators for the three forces
+    Vec3 sep_sum(0.0f, 0.0f, 0.0f);
+    Vec3 ali_sum(0.0f, 0.0f, 0.0f);
+    Vec3 coh_sum(0.0f, 0.0f, 0.0f);
+    size_t count = 0;
+
+    // Single brute-force pass over all other boids
     for (size_t i = 0; i < num_boids_; i++) {
-        int gx = static_cast<int>(boids_[i].position.x * GRID_SIZE);
-        int gy = static_cast<int>(boids_[i].position.y * GRID_SIZE);
+        if (i == boid_idx) continue;
 
-        // Clamp to valid grid range
-        if (gx < 0) gx = 0;
-        if (gx >= static_cast<int>(GRID_SIZE)) gx = static_cast<int>(GRID_SIZE) - 1;
-        if (gy < 0) gy = 0;
-        if (gy >= static_cast<int>(GRID_SIZE)) gy = static_cast<int>(GRID_SIZE) - 1;
+        float dist_sq = Vec3::DistanceSquared(pos, boids_[i].position);
+        if (dist_sq >= radius_sq || dist_sq < 0.00000001f) continue;
 
-        size_t& count = grid_counts_[gx][gy];
-        if (count < MAX_BOIDS_PER_CELL) {
-            grid_[gx][gy][count] = i;
-            count++;
-        }
-    }
-}
+        count++;
 
-void BoidsFlock::GetNeighbors(size_t boid_idx, float radius,
-                               size_t* neighbors, size_t& count) {
-    count = 0;
-    const Vec3& pos = boids_[boid_idx].position;
+        // Separation: accumulate diff weighted by inverse squared distance
+        Vec3 diff = pos - boids_[i].position;
+        sep_sum += diff * (1.0f / dist_sq);
 
-    // Determine which grid cells to check (x-y plane)
-    int gx = static_cast<int>(pos.x * GRID_SIZE);
-    int gy = static_cast<int>(pos.y * GRID_SIZE);
-    if (gx < 0) gx = 0;
-    if (gx >= static_cast<int>(GRID_SIZE)) gx = static_cast<int>(GRID_SIZE) - 1;
-    if (gy < 0) gy = 0;
-    if (gy >= static_cast<int>(GRID_SIZE)) gy = static_cast<int>(GRID_SIZE) - 1;
+        // Alignment: accumulate neighbor velocities
+        ali_sum += boids_[i].velocity;
 
-    // Check 3x3 neighborhood of cells
-    for (int dx = -1; dx <= 1; dx++) {
-        for (int dy = -1; dy <= 1; dy++) {
-            int cx = gx + dx;
-            int cy = gy + dy;
-
-            // Wrap neighborhood offsets into valid range
-            if (cx < 0) cx += GRID_SIZE;
-            if (cx >= static_cast<int>(GRID_SIZE)) cx -= GRID_SIZE;
-            if (cy < 0) cy += GRID_SIZE;
-            if (cy >= static_cast<int>(GRID_SIZE)) cy -= GRID_SIZE;
-
-            // Check all boids in this cell (use full 3D distance)
-            for (size_t i = 0; i < grid_counts_[cx][cy]; i++) {
-                size_t other_idx = grid_[cx][cy][i];
-                if (other_idx == boid_idx) continue;
-
-                float dist = Vec3::Distance(pos, boids_[other_idx].position);
-                if (dist < radius && count < MAX_BOIDS) {
-                    neighbors[count++] = other_idx;
-                }
-            }
-        }
-    }
-}
-
-Vec3 BoidsFlock::Separation(size_t boid_idx, const BoidsParams& params) {
-    Vec3 steering(0.0f, 0.0f, 0.0f);
-    size_t neighbors[MAX_BOIDS];
-    size_t count = 0;
-
-    GetNeighbors(boid_idx, params.perception_radius, neighbors, count);
-
-    if (count == 0) return steering;
-
-    const Vec3& pos = boids_[boid_idx].position;
-
-    for (size_t i = 0; i < count; i++) {
-        Vec3 diff = pos - boids_[neighbors[i]].position;
-        float dist = diff.Magnitude();
-        if (dist > 0.0001f) {
-            diff = diff / (dist * dist);  // Weight by inverse square distance
-            steering += diff;
-        }
+        // Cohesion: accumulate neighbor positions
+        coh_sum += boids_[i].position;
     }
 
-    steering = steering / static_cast<float>(count);
+    if (count == 0) return Vec3(0.0f, 0.0f, 0.0f);
 
-    if (steering.MagnitudeSquared() > 0.0f) {
-        steering.SetMagnitude(params.max_speed);
-        steering = steering - boids_[boid_idx].velocity;
-        steering.Limit(params.max_force);
+    float inv_count = 1.0f / static_cast<float>(count);
+    Vec3 force(0.0f, 0.0f, 0.0f);
+
+    // Separation steering
+    sep_sum *= inv_count;
+    if (sep_sum.MagnitudeSquared() > 0.0f) {
+        sep_sum.SetMagnitude(params.max_speed);
+        sep_sum = sep_sum - vel;
+        sep_sum.Limit(params.max_force);
+        force += sep_sum * params.separation_weight;
     }
 
-    return steering * params.separation_weight;
-}
+    // Alignment steering
+    ali_sum *= inv_count;
+    ali_sum.SetMagnitude(params.max_speed);
+    Vec3 ali_steer = ali_sum - vel;
+    ali_steer.Limit(params.max_force);
+    force += ali_steer * params.alignment_weight;
 
-Vec3 BoidsFlock::Alignment(size_t boid_idx, const BoidsParams& params) {
-    Vec3 steering(0.0f, 0.0f, 0.0f);
-    size_t neighbors[MAX_BOIDS];
-    size_t count = 0;
-
-    GetNeighbors(boid_idx, params.perception_radius, neighbors, count);
-
-    if (count == 0) return steering;
-
-    Vec3 avg_velocity(0.0f, 0.0f, 0.0f);
-
-    for (size_t i = 0; i < count; i++) {
-        avg_velocity += boids_[neighbors[i]].velocity;
-    }
-
-    avg_velocity = avg_velocity / static_cast<float>(count);
-    avg_velocity.SetMagnitude(params.max_speed);
-    steering = avg_velocity - boids_[boid_idx].velocity;
-    steering.Limit(params.max_force);
-
-    return steering * params.alignment_weight;
-}
-
-Vec3 BoidsFlock::Cohesion(size_t boid_idx, const BoidsParams& params) {
-    Vec3 steering(0.0f, 0.0f, 0.0f);
-    size_t neighbors[MAX_BOIDS];
-    size_t count = 0;
-
-    GetNeighbors(boid_idx, params.perception_radius, neighbors, count);
-
-    if (count == 0) return steering;
-
-    Vec3 center(0.0f, 0.0f, 0.0f);
-
-    for (size_t i = 0; i < count; i++) {
-        center += boids_[neighbors[i]].position;
-    }
-
-    center = center / static_cast<float>(count);
-
-    // Desired velocity towards center
-    Vec3 desired = center - boids_[boid_idx].position;
+    // Cohesion steering
+    coh_sum *= inv_count;
+    Vec3 desired = coh_sum - pos;
     desired.SetMagnitude(params.max_speed);
-    steering = desired - boids_[boid_idx].velocity;
-    steering.Limit(params.max_force);
+    Vec3 coh_steer = desired - vel;
+    coh_steer.Limit(params.max_force);
+    force += coh_steer * params.cohesion_weight;
 
-    return steering * params.cohesion_weight;
+    return force;
 }
 
 void BoidsFlock::WrapPosition(Vec3& pos) {
-    // Guard against non-finite values to avoid infinite loops
+    // Guard against non-finite values
     if (!std::isfinite(pos.x) || !std::isfinite(pos.y) || !std::isfinite(pos.z)) {
         pos.x = 0.5f;
         pos.y = 0.5f;
@@ -230,30 +140,19 @@ void BoidsFlock::WrapPosition(Vec3& pos) {
         return;
     }
 
-    // Use while loops to handle any position value
-    while (pos.x < 0.0f) pos.x += 1.0f;
-    while (pos.x >= 1.0f) pos.x -= 1.0f;
-    while (pos.y < 0.0f) pos.y += 1.0f;
-    while (pos.y >= 1.0f) pos.y -= 1.0f;
-    while (pos.z < 0.0f) pos.z += 1.0f;
-    while (pos.z >= 1.0f) pos.z -= 1.0f;
+    // Branchless wrap using floorf (single FPU instruction on Cortex-M7)
+    pos.x -= floorf(pos.x);
+    pos.y -= floorf(pos.y);
+    pos.z -= floorf(pos.z);
 }
 
 void BoidsFlock::Update(float dt, const BoidsParams& params) {
     if (!initialized_ || num_boids_ == 0) return;
 
-    // Update spatial grid
-    UpdateSpatialGrid();
-
-    // Apply flocking forces
+    // Apply flocking forces (single-pass, brute-force neighbors)
     for (size_t i = 0; i < num_boids_; i++) {
-        Vec3 sep = Separation(i, params);
-        Vec3 ali = Alignment(i, params);
-        Vec3 coh = Cohesion(i, params);
-
-        boids_[i].ApplyForce(sep);
-        boids_[i].ApplyForce(ali);
-        boids_[i].ApplyForce(coh);
+        Vec3 flocking = ApplyFlockingForces(i, params);
+        boids_[i].ApplyForce(flocking);
     }
 
     // Update physics
@@ -268,8 +167,23 @@ void BoidsFlock::Update(float dt, const BoidsParams& params) {
 }
 
 int BoidsFlock::GetCellDensity(size_t grid_x, size_t grid_y) const {
-    if (grid_x >= GRID_SIZE || grid_y >= GRID_SIZE) return 0;
-    return static_cast<int>(grid_counts_[grid_x][grid_y]);
+    if (grid_x >= LED_GRID_DIM || grid_y >= LED_GRID_DIM) return 0;
+
+    int count = 0;
+    for (size_t i = 0; i < num_boids_; i++) {
+        int gx = static_cast<int>(boids_[i].position.x * LED_GRID_DIM);
+        int gy = static_cast<int>(boids_[i].position.y * LED_GRID_DIM);
+        // Clamp to valid range
+        if (gx < 0) gx = 0;
+        if (gx >= static_cast<int>(LED_GRID_DIM)) gx = static_cast<int>(LED_GRID_DIM) - 1;
+        if (gy < 0) gy = 0;
+        if (gy >= static_cast<int>(LED_GRID_DIM)) gy = static_cast<int>(LED_GRID_DIM) - 1;
+
+        if (static_cast<size_t>(gx) == grid_x && static_cast<size_t>(gy) == grid_y) {
+            count++;
+        }
+    }
+    return count;
 }
 
 } // namespace murmur
