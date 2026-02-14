@@ -113,24 +113,33 @@ void Display::DrawParameters(const BoidsParams& params, size_t num_boids,
 
     char str[32];
 
-    // Separation
+    // Separation (newlib-nano doesn't support %f, so format manually)
+    int sep_i = static_cast<int>(params.separation_weight);
+    int sep_f = static_cast<int>((params.separation_weight - sep_i) * 100);
+    if (sep_f < 0) sep_f = -sep_f;
     patch_->display.SetCursor(0, 12);
-    snprintf(str, sizeof(str), "Sep: %.2f", static_cast<double>(params.separation_weight));
+    snprintf(str, sizeof(str), "Sep: %d.%02d", sep_i, sep_f);
     patch_->display.WriteString(str, Font_6x8, true);
 
     // Cohesion
+    int coh_i = static_cast<int>(params.cohesion_weight);
+    int coh_f = static_cast<int>((params.cohesion_weight - coh_i) * 100);
+    if (coh_f < 0) coh_f = -coh_f;
     patch_->display.SetCursor(64, 12);
-    snprintf(str, sizeof(str), "Coh: %.2f", static_cast<double>(params.cohesion_weight));
+    snprintf(str, sizeof(str), "Coh: %d.%02d", coh_i, coh_f);
     patch_->display.WriteString(str, Font_6x8, true);
 
     // Freq Range
     patch_->display.SetCursor(0, 22);
-    snprintf(str, sizeof(str), "Frq: %.0fHz", static_cast<double>(freq_range));
+    snprintf(str, sizeof(str), "Frq: %dHz", static_cast<int>(freq_range));
     patch_->display.WriteString(str, Font_6x8, true);
 
     // Alignment
+    int ali_i = static_cast<int>(params.alignment_weight);
+    int ali_f = static_cast<int>((params.alignment_weight - ali_i) * 100);
+    if (ali_f < 0) ali_f = -ali_f;
     patch_->display.SetCursor(64, 22);
-    snprintf(str, sizeof(str), "Ali: %.2f", static_cast<double>(params.alignment_weight));
+    snprintf(str, sizeof(str), "Ali: %d.%02d", ali_i, ali_f);
     patch_->display.WriteString(str, Font_6x8, true);
 
     // Number of boids
@@ -173,8 +182,8 @@ void Display::DrawWaveform(const float* buffer, size_t size) {
     // Center line
     patch_->display.DrawLine(0, 37, 127, 37, true);
 
-    // Page indicator
-    patch_->display.SetCursor(0, 2);
+    // Page indicator (below waveform area)
+    patch_->display.SetCursor(0, 56);
     patch_->display.WriteString("[3/3] Wave", Font_6x8, true);
 
     Update();
