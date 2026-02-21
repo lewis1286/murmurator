@@ -100,8 +100,8 @@ int main(void) {
     boids_params.alignment_weight = alignment_weight;
     boids_params.cohesion_weight = cohesion_weight;
     boids_params.perception_radius = 0.25f;
-    boids_params.max_speed = 0.1f;
-    boids_params.max_force = 0.005f;
+    boids_params.max_speed = 0.3f;
+    boids_params.max_force = 0.02f;
 
     // Initialize UI
     display.Init(&patch);

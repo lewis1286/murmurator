@@ -14,12 +14,12 @@ void BoidsFlock::Init(size_t num_boids) {
 
     num_boids_ = (num_boids > MAX_BOIDS) ? MAX_BOIDS : num_boids;
 
-    // Initialize boids with random positions and velocities
+    // Initialize boids with random positions inside safe zone (within margins)
     for (size_t i = 0; i < num_boids_; i++) {
         boids_[i].position = Vec3(
-            Random01(),
-            Random01(),
-            0.3f + Random01() * 0.4f  // z starts in 0.3-0.7 range (moderate amplitude)
+            BOUNDARY_MARGIN_XY + Random01() * (1.0f - 2.0f * BOUNDARY_MARGIN_XY),
+            BOUNDARY_MARGIN_XY + Random01() * (1.0f - 2.0f * BOUNDARY_MARGIN_XY),
+            0.3f + Random01() * 0.4f  // z starts in 0.3-0.7 range (within margins)
         );
         boids_[i].velocity = Vec3(
             (Random01() - 0.5f) * 0.02f,
@@ -35,11 +35,11 @@ void BoidsFlock::Init(size_t num_boids) {
 void BoidsFlock::SetNumBoids(size_t num) {
     size_t new_num = (num > MAX_BOIDS) ? MAX_BOIDS : num;
 
-    // Initialize any new boids
+    // Initialize any new boids inside safe zone
     for (size_t i = num_boids_; i < new_num; i++) {
         boids_[i].position = Vec3(
-            Random01(),
-            Random01(),
+            BOUNDARY_MARGIN_XY + Random01() * (1.0f - 2.0f * BOUNDARY_MARGIN_XY),
+            BOUNDARY_MARGIN_XY + Random01() * (1.0f - 2.0f * BOUNDARY_MARGIN_XY),
             0.3f + Random01() * 0.4f
         );
         boids_[i].velocity = Vec3(
@@ -56,9 +56,9 @@ void BoidsFlock::SetNumBoids(size_t num) {
 void BoidsFlock::Scatter() {
     for (size_t i = 0; i < num_boids_; i++) {
         boids_[i].position = Vec3(
-            Random01(),
-            Random01(),
-            0.2f + Random01() * 0.6f
+            BOUNDARY_MARGIN_XY + Random01() * (1.0f - 2.0f * BOUNDARY_MARGIN_XY),
+            BOUNDARY_MARGIN_XY + Random01() * (1.0f - 2.0f * BOUNDARY_MARGIN_XY),
+            BOUNDARY_MARGIN_Z_LO + Random01() * (1.0f - BOUNDARY_MARGIN_Z_LO - BOUNDARY_MARGIN_Z_HI)
         );
         boids_[i].velocity = Vec3(
             (Random01() - 0.5f) * 0.05f,
@@ -131,7 +131,41 @@ Vec3 BoidsFlock::ApplyFlockingForces(size_t boid_idx, const BoidsParams& params)
     return force;
 }
 
-void BoidsFlock::WrapPosition(Vec3& pos) {
+Vec3 BoidsFlock::ComputeBoundaryForce(const Vec3& pos) {
+    Vec3 force(0.0f, 0.0f, 0.0f);
+    float t;
+
+    // X axis (symmetric margins)
+    if (pos.x < BOUNDARY_MARGIN_XY) {
+        t = (BOUNDARY_MARGIN_XY - pos.x) / BOUNDARY_MARGIN_XY;
+        force.x = BOUNDARY_FORCE_XY * t * t;
+    } else if (pos.x > 1.0f - BOUNDARY_MARGIN_XY) {
+        t = (pos.x - (1.0f - BOUNDARY_MARGIN_XY)) / BOUNDARY_MARGIN_XY;
+        force.x = -BOUNDARY_FORCE_XY * t * t;
+    }
+
+    // Y axis (symmetric margins)
+    if (pos.y < BOUNDARY_MARGIN_XY) {
+        t = (BOUNDARY_MARGIN_XY - pos.y) / BOUNDARY_MARGIN_XY;
+        force.y = BOUNDARY_FORCE_XY * t * t;
+    } else if (pos.y > 1.0f - BOUNDARY_MARGIN_XY) {
+        t = (pos.y - (1.0f - BOUNDARY_MARGIN_XY)) / BOUNDARY_MARGIN_XY;
+        force.y = -BOUNDARY_FORCE_XY * t * t;
+    }
+
+    // Z axis (asymmetric margins)
+    if (pos.z < BOUNDARY_MARGIN_Z_LO) {
+        t = (BOUNDARY_MARGIN_Z_LO - pos.z) / BOUNDARY_MARGIN_Z_LO;
+        force.z = BOUNDARY_FORCE_Z * t * t;
+    } else if (pos.z > 1.0f - BOUNDARY_MARGIN_Z_HI) {
+        t = (pos.z - (1.0f - BOUNDARY_MARGIN_Z_HI)) / BOUNDARY_MARGIN_Z_HI;
+        force.z = -BOUNDARY_FORCE_Z * t * t;
+    }
+
+    return force;
+}
+
+void BoidsFlock::ClampPosition(Vec3& pos) {
     // Guard against non-finite values
     if (!std::isfinite(pos.x) || !std::isfinite(pos.y) || !std::isfinite(pos.z)) {
         pos.x = 0.5f;
@@ -140,19 +174,24 @@ void BoidsFlock::WrapPosition(Vec3& pos) {
         return;
     }
 
-    // Branchless wrap using floorf (single FPU instruction on Cortex-M7)
-    pos.x -= floorf(pos.x);
-    pos.y -= floorf(pos.y);
-    pos.z -= floorf(pos.z);
+    // Hard clamp to [0, 1] as safety net
+    if (pos.x < 0.0f) pos.x = 0.0f;
+    else if (pos.x > 1.0f) pos.x = 1.0f;
+    if (pos.y < 0.0f) pos.y = 0.0f;
+    else if (pos.y > 1.0f) pos.y = 1.0f;
+    if (pos.z < 0.0f) pos.z = 0.0f;
+    else if (pos.z > 1.0f) pos.z = 1.0f;
 }
 
 void BoidsFlock::Update(float dt, const BoidsParams& params) {
     if (!initialized_ || num_boids_ == 0) return;
 
-    // Apply flocking forces (single-pass, brute-force neighbors)
+    // Apply flocking + boundary forces
     for (size_t i = 0; i < num_boids_; i++) {
         Vec3 flocking = ApplyFlockingForces(i, params);
         boids_[i].ApplyForce(flocking);
+        Vec3 boundary = ComputeBoundaryForce(boids_[i].position);
+        boids_[i].ApplyForce(boundary);
     }
 
     // Update physics
@@ -162,7 +201,7 @@ void BoidsFlock::Update(float dt, const BoidsParams& params) {
         boids_[i].position += boids_[i].velocity * dt;
         boids_[i].acceleration = Vec3(0.0f, 0.0f, 0.0f);
 
-        WrapPosition(boids_[i].position);
+        ClampPosition(boids_[i].position);
     }
 }
 

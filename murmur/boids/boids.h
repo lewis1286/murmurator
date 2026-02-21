@@ -11,6 +11,13 @@ namespace murmur {
 constexpr size_t MAX_BOIDS = 16;
 constexpr size_t LED_GRID_DIM = 4;  // 4x4 LED grid for density visualization
 
+// Boundary avoidance constants
+constexpr float BOUNDARY_MARGIN_XY  = 0.2f;   // 10% margin on x and y edges
+constexpr float BOUNDARY_MARGIN_Z_LO = 0.10f;  // 5% margin at z=0 (allow near-silence)
+constexpr float BOUNDARY_MARGIN_Z_HI = 0.15f;  // 15% margin at z=1 (avoid sustained max amp)
+constexpr float BOUNDARY_FORCE_XY   = 0.16f;   // 4x max_force for x/y boundaries
+constexpr float BOUNDARY_FORCE_Z    = 0.08f;   // 2x max_force for z boundaries
+
 struct Boid {
     Vec3 position;      // 0-1 range for all axes (x=pan, y=freq, z=amp)
     Vec3 velocity;
@@ -50,7 +57,8 @@ public:
 private:
     // Single-pass flocking: computes separation + alignment + cohesion in one neighbor traversal
     Vec3 ApplyFlockingForces(size_t boid_idx, const BoidsParams& params);
-    void WrapPosition(Vec3& pos);
+    Vec3 ComputeBoundaryForce(const Vec3& pos);
+    void ClampPosition(Vec3& pos);
 
     Boid boids_[MAX_BOIDS];
     size_t num_boids_;

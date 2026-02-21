@@ -4,10 +4,11 @@ A Daisy Patch module where a flock of 3D boids controls oscillator voices. Each 
 
 ## Current Status
 
-- ✓ 3D boids simulation (Vec3, flocking with spatial partitioning)
-- ✓ Oscillator voices (DaisySP Oscillator, one per boid, equal-power panning)
-- ✓ OLED visualization (triangle size varies with z/amplitude)
-- ✓ Full and UI-only builds working
+- ✓ 3D boids simulation (Vec3, single-pass flocking with brute-force neighbors)
+- ✓ Oscillator voices (DaisySP Oscillator, one per boid, linear panning)
+- ✓ OLED visualization (triangle size varies with z/amplitude, low freq at bottom)
+- ✓ Full, UI-only, and debug builds working
+- ✓ 500Hz boids tick rate with FastInvSqrt optimization
 
 Previous granular synthesis engine files (circular_buffer, grain_voice, grain_pool, scheduler) kept in repo for reference but removed from build.
 
@@ -28,9 +29,13 @@ make program-dfu
 make program
 ```
 
-### UI-Only Mode
+### Build Variants
 
-Build with `make ui-only` to skip audio initialization (oscillator voices, `StartAudio`). Uses `MURMUR_UI_ONLY` preprocessor flag. Always `make clean` when switching between full and UI-only builds.
+- `make ui-only` — skip audio initialization (oscillator voices, `StartAudio`). Uses `MURMUR_UI_ONLY` preprocessor flag.
+- `make debug` — full build with `-Og` optimization for stepping through code.
+- `make debug-ui-only` — debug + UI-only combined.
+
+Always `make clean` when switching between build variants.
 
 ## Project Structure
 
@@ -42,12 +47,12 @@ murmurator/
 │   ├── MurmurBoids.cpp           # Main application
 │   ├── Makefile                  # Build configuration
 │   ├── audio/
-│   │   ├── osc_voice.h           # Oscillator voice (sine, equal-power pan)
+│   │   ├── osc_voice.h           # Oscillator voice (sine, linear pan)
 │   │   ├── circular_buffer.h/.cpp # (legacy, not in build)
 │   │   ├── grain_voice.h/.cpp     # (legacy, not in build)
 │   │   └── grain_pool.h/.cpp      # (legacy, not in build)
 │   ├── boids/
-│   │   ├── vec3.h                 # 3D vector math
+│   │   ├── vec3.h                 # 3D vector math + FastInvSqrt
 │   │   ├── vec2.h                 # (legacy, kept for reference)
 │   │   ├── boids.h/.cpp           # 3D flock simulation
 │   │   └── scheduler.h/.cpp       # (legacy, not in build)
@@ -80,8 +85,8 @@ murmurator/
 
 ## Display Pages
 
-1. **Flock View** - Boid triangles on OLED; triangle size varies with z (amplitude)
-2. **Parameters** - Current control values and mapping info
+1. **Flock View** - Boid triangles on OLED; triangle size varies with z (amplitude); low freq at bottom, high freq at top
+2. **Parameters** - Current control values (integer-formatted for newlib-nano compatibility) and mapping info
 3. **Waveform** - Real-time summed oscillator output
 
 ## How It Works
@@ -94,18 +99,18 @@ murmurator/
 | z (0-1) | Amplitude | 0 to max_amp/num_boids | `amp = z * MAX_AMP / num_boids` |
 
 ### Audio Signal Flow
-1. Boids simulation runs at ~60fps (16ms tick)
+1. Boids simulation runs at 500Hz (2ms tick)
 2. Each boid's 3D position maps to its oscillator's freq/amp/pan
-3. Parameters smoothed via one-pole filter to avoid clicks
+3. Parameters smoothed via one-pole filter (coeff=0.006) to avoid clicks
 4. Audio callback sums all active oscillators per sample
-5. Equal-power panning: `gain_l = cos(pan * PI/2) * amp`, `gain_r = sin(pan * PI/2) * amp`
+5. Linear panning: `gain_l = (1 - pan_norm) * amp`, `gain_r = pan_norm * amp`
 
 ## Memory Usage
 
 | Region | Used | Total | % |
 |--------|------|-------|---|
-| FLASH | 105KB | 128KB | 80.3% |
-| SRAM | 57KB | 512KB | 10.9% |
+| FLASH | 103KB | 128KB | 78.7% |
+| SRAM | 56KB | 512KB | 10.7% |
 | SDRAM | 0 | 64MB | 0% |
 
 ## Build Modes
@@ -114,8 +119,20 @@ murmurator/
 |------|---------|-----------|
 | Full | `make clean && make` | Audio callback + boids + UI |
 | UI-only | `make clean && make ui-only` | Boids + UI only (no audio) |
+| Debug | `make clean && make debug` | Full build with `-Og` for debugger |
+| Debug UI-only | `make clean && make debug-ui-only` | UI-only with `-Og` |
 
-## Bug Fixes
+## Performance Optimizations
+
+- **-O2 compiler optimization** (was `-Og`), ~2-5x overall speedup
+- **Single-pass flocking**: `ApplyFlockingForces()` computes separation, alignment, and cohesion in one neighbor traversal (was 3 separate passes with 3 `GetNeighbors()` calls each)
+- **Brute-force neighbors**: Removed 4x4 spatial grid. With max 16 boids, direct O(N^2) loop with squared distance is faster and gives correct 3D neighbor detection
+- **Squared distances**: All neighbor comparisons use `DistanceSquared()`, eliminating sqrtf from the hot path
+- **FastInvSqrt**: Quake-style fast inverse square root for steering normalization (~1-2% error, fine for flocking)
+- **floorf wrap**: `WrapPosition` uses `pos -= floorf(pos)` instead of while-loops (branchless on Cortex-M7 FPU)
+- **500Hz tick rate** (was 62.5Hz / 16ms)
+
+## Bug Fixes & Known Issues
 
 ### Edge Freeze Fix (WrapPosition)
 
@@ -124,6 +141,10 @@ murmurator/
 ### DrawLine Unsigned Overflow
 
 libDaisy's `DrawLine` uses `uint_fast8_t` (= `uint32_t` on ARM). Negative coordinates wrap to ~4 billion, causing Bresenham to loop forever. All triangle vertices are clamped before drawing.
+
+### newlib-nano Float Printf
+
+`--specs=nano.specs` strips float printf support. Parameters page uses integer-based formatting (`%d.%02d`) instead of `%.2f`.
 
 ## Hardware Testing
 
