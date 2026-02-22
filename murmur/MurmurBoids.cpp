@@ -1,6 +1,7 @@
 #include "daisysp.h"
 #include "daisy_patch.h"
 #include "audio/osc_voice.h"
+#include "audio/simple_reverb.h"
 #include "boids/boids.h"
 #include "ui/display.h"
 #include "ui/led_grid.h"
@@ -14,6 +15,10 @@ DaisyPatch patch;
 
 // Oscillator voices (one per boid)
 murmur::OscVoice voices[murmur::MAX_BOIDS];
+
+// Shared reverb bus for z-axis distance simulation (mono in, mono out)
+murmur::SimpleReverb reverb;
+constexpr float REVERB_LEVEL = 0.4f;
 
 // Boids
 murmur::BoidsFlock flock;
@@ -59,16 +64,20 @@ static void AudioCallback(AudioHandle::InputBuffer in,
                           AudioHandle::OutputBuffer out,
                           size_t size) {
     for (size_t i = 0; i < size; i++) {
-        float sum_l = 0.0f;
-        float sum_r = 0.0f;
+        float sum_l  = 0.0f;
+        float sum_r  = 0.0f;
+        float rev_in = 0.0f;
 
         for (size_t v = 0; v < static_cast<size_t>(num_boids); v++) {
-            sum_l += voices[v].ProcessLeft();
-            sum_r += voices[v].ProcessRight();
+            sum_l  += voices[v].ProcessLeft();
+            sum_r  += voices[v].ProcessRight();
+            rev_in += voices[v].GetReverbSend();
         }
 
-        out[0][i] = sum_l;
-        out[1][i] = sum_r;
+        // Mix reverb tail into output — adds spatial depth for far (low-z) boids
+        float rev_out = reverb.Process(rev_in);
+        out[0][i] = sum_l + rev_out * REVERB_LEVEL;
+        out[1][i] = sum_r + rev_out * REVERB_LEVEL;
         out[2][i] = in[2][i];
         out[3][i] = in[3][i];
 
@@ -76,7 +85,7 @@ static void AudioCallback(AudioHandle::InputBuffer in,
         wave_display_decimation++;
         if (wave_display_decimation >= 8) {
             wave_display_decimation = 0;
-            wave_display[wave_display_pos] = (sum_l + sum_r) * 0.5f;
+            wave_display[wave_display_pos] = (out[0][i] + out[1][i]) * 0.5f;
             wave_display_pos = (wave_display_pos + 1) % WAVE_DISPLAY_SIZE;
         }
     }
@@ -87,11 +96,12 @@ int main(void) {
     patch.Init();
     sample_rate = patch.AudioSampleRate();
 
-    // Initialize oscillator voices
+    // Initialize oscillator voices and reverb
 #ifndef MURMUR_UI_ONLY
     for (size_t i = 0; i < murmur::MAX_BOIDS; i++) {
         voices[i].Init(sample_rate);
     }
+    reverb.Init(sample_rate);
 #endif
 
     // Initialize boids
@@ -159,13 +169,13 @@ void UpdateVoicesFromBoids() {
         // y -> frequency
         float freq = FREQ_MIN + boid.position.y * freq_range;
 
-        // z -> amplitude
-        float amp = boid.position.z * max_amp_per_voice;
+        // z -> amplitude (reversed: z=0 loud/close, z=1 quiet/far)
+        float amp = (1.0f - boid.position.z) * max_amp_per_voice;
 
         // x -> pan (-1 to +1)
         float pan = boid.position.x * 2.0f - 1.0f;
 
-        voices[i].SetParams(freq, amp, pan);
+        voices[i].SetParams(freq, amp, pan, boid.position.z);
         voices[i].UpdateSmoothing();
     }
 }

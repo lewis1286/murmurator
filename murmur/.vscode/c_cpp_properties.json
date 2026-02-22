@@ -21,6 +21,7 @@
       "cStandard": "c11",
       "compilerPath": "/usr/local/bin/arm-none-eabi-g++",
       "cppStandard": "c++17",
+      "intelliSenseMode": "gcc-arm",
       "defines": [
         "_DEBUG",
         "UNICODE",

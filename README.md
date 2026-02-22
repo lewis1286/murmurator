@@ -2,7 +2,41 @@
 
 A granular synthesis module for [Daisy Patch](https://www.electro-smith.com/daisy/patch) where a flock of boids controls grain parameters. Each boid represents a grain voice—its 2D position and velocity map to playback position, pitch, grain size, and stereo pan.
 
-## Demo
+
+# Ideas & Future Exploration
+
+## 1. Rethink the Y-axis parameter
+Frequency is a natural but maybe uninteresting choice for `y`. Alternatives to explore:
+- **Wave-folding** — y controls fold amount, adds harmonic richness without pitch shift
+- **Filter cutoff** — y sweeps a lowpass/bandpass; flock height becomes brightness
+- **Vibrato/FM depth** — y controls modulation index; tightly clustered boids = subtle, spread = intense
+- **Reverb send** — y controls wet/dry; higher boids sound more spacious
+- **Detune** — y offsets from a fixed root pitch; flock movement creates subtle chorusing
+
+### Chord/scale quantization
+Instead of a continuous frequency range, quantize `y` to a user-selectable scale/chord. Ideas:
+- User picks root note + mode (major, minor, pentatonic, etc.)
+- Boids snap to the nearest scale degree as they move
+- Could expose as a menu option alongside free-running mode
+
+## 2. Bring back granular synthesis
+The old granular engine (circular_buffer, grain_voice, grain_pool, scheduler) is still in the repo. Possible hybrid:
+- Boids control grain parameters (playback position, grain size, pitch, pan) instead of — or alongside — the sine oscillators
+- Keep the 3D boid sim; map axes to grain params the same way as current osc params
+
+## 3. Assignable X/Y/Z menu
+Add an in-module menu (encoder-driven) so the user can assign any boid axis to any audio parameter:
+- X, Y, Z each get a slot: frequency, amplitude, pan, filter cutoff, detune, reverb send, wave-fold, etc.
+- Lets users discover their own mappings without reflashing
+- Could be a fourth display page (settings page)
+
+## 4. Merge separation + cohesion into a single "flock density" control
+Currently CTRL_1 (separation) and CTRL_2 (cohesion) are separate, which is redundant — they pull in opposite directions. Proposal:
+- Single **Density** knob: CCW = max separation (boids repel, spread out), center = balanced, CW = max cohesion (boids cluster)
+- Internally: `separation = map(density, 0, 1, 2, 0)`, `cohesion = map(density, 0, 1, 0, 2)`
+- Frees up a knob — could be repurposed for a new parameter (e.g. a fifth axis like filter cutoff)
+
+# Demo
 
 Feed audio into the module, and watch as the boids flock across the OLED display. Their movement creates evolving granular textures—separation spreads the sound across the stereo field and pitch range, while cohesion creates focused, clustered tones.
 

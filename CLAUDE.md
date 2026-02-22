@@ -10,6 +10,13 @@ A Daisy Patch module where a flock of 3D boids controls oscillator voices. Each 
 - ✓ Full, UI-only, and debug builds working
 - ✓ 500Hz boids tick rate with FastInvSqrt optimization
 
+## Future Ideas (Backlog)
+
+1. **Rethink Y-axis parameter** — frequency may be too simple. Candidates: wave-folding, filter cutoff, vibrato/FM depth, reverb send, detune. Also explore quantizing Y to a scale/chord (user picks root + mode, boids snap to scale degrees).
+2. **Granular synthesis revival** — old engine (circular_buffer, grain_voice, grain_pool, scheduler) is still in repo. Could map 3D boid axes to grain params (playback position, size, pitch, pan) instead of or alongside sine oscillators.
+3. **Assignable X/Y/Z menu** — encoder-driven settings page (4th display page) where user assigns each boid axis to any audio parameter (freq, amp, pan, filter, detune, reverb, wave-fold, etc.) without reflashing.
+4. **Single "Flock Density" knob** — merge CTRL_1 (separation) and CTRL_2 (cohesion) into one bipolar control. CCW = max separation, CW = max cohesion. Frees a knob for a new parameter.
+
 Previous granular synthesis engine files (circular_buffer, grain_voice, grain_pool, scheduler) kept in repo for reference but removed from build.
 
 ## Quick Start
