@@ -25,8 +25,7 @@ struct OscVoice {
     float current_amp;
     float current_pan;
     float current_z;
-    float current_reverb_send;  // z * reverb_send_scale: far boids send more to reverb bus
-    float reverb_send_scale;    // Set to max_amp_per_voice so send stays within budget
+    float current_reverb_send;  // = current_amp: reverb follows voice amplitude, not z
     float last_sample;    // Filtered sample, cached for right channel and reverb send
     bool active;
 
@@ -53,7 +52,6 @@ struct OscVoice {
         current_pan  = 0.0f;
         current_z    = 0.5f;
         current_reverb_send = 0.0f;
-        reverb_send_scale   = 1.0f;
         last_sample  = 0.0f;
         active = false;
     }
@@ -80,13 +78,15 @@ struct OscVoice {
 
     // Call once per boid tick (500 Hz) to smooth parameters and update DSP state.
     void UpdateSmoothing() {
-        // One-pole smoothing (scaled for 500 Hz boids update rate)
-        constexpr float coeff = 0.006f;
+        constexpr float coeff_freq = 0.006f;  // slow — preserves glide in linear mode
+        constexpr float coeff_amp  = 0.05f;   // faster — amplitude tracks z movement
+        constexpr float coeff_pan  = 0.006f;  // slow — smooth stereo drift
+        constexpr float coeff_z    = 0.05f;   // matches amp
 
-        current_freq += (target_freq - current_freq) * coeff;
-        current_amp  += (target_amp  - current_amp)  * coeff;
-        current_pan  += (target_pan  - current_pan)  * coeff;
-        current_z    += (target_z    - current_z)    * coeff;
+        current_freq += (target_freq - current_freq) * coeff_freq;
+        current_amp  += (target_amp  - current_amp)  * coeff_amp;
+        current_pan  += (target_pan  - current_pan)  * coeff_pan;
+        current_z    += (target_z    - current_z)    * coeff_z;
 
         osc.SetFreq(current_freq);
 
@@ -101,11 +101,10 @@ struct OscVoice {
         gain_l = (1.0f - pan_norm) * current_amp;
         gain_r = pan_norm           * current_amp;
 
-        // Reverb bus send: z scaled by reverb_send_scale (= max_amp_per_voice).
-        // Keeps wet contribution within the same amplitude budget as direct output:
-        //   direct = (1-z) * max_amp_per_voice,  reverb = z * max_amp_per_voice.
-        // Without this, 16 voices at z=0.5 saturate the reverb bus (~4× over budget).
-        current_reverb_send = current_z * reverb_send_scale;
+        // Reverb send proportional to voice amplitude (not z).
+        // Far boids go quiet in reverb too — preserving full z amplitude range.
+        // Budget: sum(current_amp) <= MAX_AMP_TOTAL, so reverb input stays bounded.
+        current_reverb_send = current_amp;
     }
 
     // Process one sample — filters oscillator output. Caches result for right channel

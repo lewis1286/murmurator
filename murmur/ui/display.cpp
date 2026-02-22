@@ -120,6 +120,12 @@ void Display::DrawParameters(const BoidsParams& params, size_t num_boids,
     snprintf(str, sizeof(str), "Density: %d%%", den_i);
     patch_->display.WriteString(str, Font_6x8, true);
 
+    // Speed
+    int spd_i = static_cast<int>(params.max_speed * 100);
+    patch_->display.SetCursor(64, 12);
+    snprintf(str, sizeof(str), "Spd: %d%%", spd_i);
+    patch_->display.WriteString(str, Font_6x8, true);
+
     // Freq Range
     patch_->display.SetCursor(0, 22);
     snprintf(str, sizeof(str), "Frq: %dHz", static_cast<int>(freq_range));

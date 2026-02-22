@@ -116,7 +116,7 @@ int main(void) {
     boids_params.alignment_weight  = alignment_weight;
     boids_params.perception_radius = 0.25f;
     boids_params.max_speed = 0.3f;
-    boids_params.max_force = 0.02f;
+    boids_params.max_force = 0.3f * 0.5f;  // coupled: force scales with speed
 
     // Initialize UI
     display.Init(&patch);
@@ -175,13 +175,13 @@ void UpdateVoicesFromBoids() {
         float freq = scale_quantizer.Quantize(
             boid.position.y, FREQ_MIN, freq_range, span_octaves);
 
-        // z -> amplitude (reversed: z=0 loud/close, z=1 quiet/far)
-        float amp = (1.0f - boid.position.z) * max_amp_per_voice;
+        // z -> amplitude: z=0 loud/close, z=1 quiet/far, with floor so voices never silence
+        constexpr float AMP_FLOOR = 0.2f;  // minimum as fraction of max_amp_per_voice
+        float amp = (AMP_FLOOR + (1.0f - boid.position.z) * (1.0f - AMP_FLOOR)) * max_amp_per_voice;
 
         // x -> pan (-1 to +1)
         float pan = boid.position.x * 2.0f - 1.0f;
 
-        voices[i].reverb_send_scale = max_amp_per_voice;
         voices[i].SetParams(freq, amp, pan, boid.position.z);
         // In scale mode, snap freq immediately so boids land on discrete notes
         // rather than gliding through them (amp/pan still smooth normally).
@@ -202,7 +202,9 @@ void UpdateControls() {
     boids_params.separation_weight = density * 2.0f;
     boids_params.cohesion_weight   = (1.0f - density) * 2.0f;
 
-    // CTRL_2: (reserved)
+    // CTRL_2: Speed (max_speed 0.05-0.6); max_force coupled so boids can reach target speed
+    boids_params.max_speed = 0.05f + patch.GetKnobValue(DaisyPatch::CTRL_2) * 1.45f;
+    boids_params.max_force = boids_params.max_speed * 0.5f;
 
     // CTRL_3: dual-mode — Hz range when scale=OFF, octave span when scale active
     if (scale_quantizer.GetScale() == murmur::ScaleType::OFF) {

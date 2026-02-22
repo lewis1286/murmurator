@@ -73,7 +73,7 @@ murmurator/
 | Knob | Parameter | Range | Description |
 |------|-----------|-------|-------------|
 | CTRL_1 | Density | 0-1 | CCW = min separation (cluster), CW = max separation (spread) |
-| CTRL_2 | (reserved) | — | — |
+| CTRL_2 | Speed | 0.05-1.5 | Boid max speed → rate of parameter change |
 | CTRL_3 | Freq Range / Span | 50-800 Hz / 1-4 oct | Hz spread (scale=OFF) or octave span (scale active) |
 | CTRL_4 | Alignment | 0-2 | Velocity alignment → synchronized movement |
 
