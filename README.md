@@ -116,8 +116,8 @@ make clean && make
 # UI-only build (no audio, for testing display/knobs/boids)
 make clean && make ui-only
 
-# Put Daisy in DFU mode: hold BOOT, press RESET
-make program-dfu
+# Flash using debugger probe
+make program
 ```
 
 > **Note:** Always run `make clean` when switching between full and UI-only builds.

@@ -29,9 +29,6 @@ make clean && make
 # UI-only build (no audio, for testing OLED/LEDs/knobs/encoder)
 make clean && make ui-only
 
-# Flash (put Daisy in DFU mode: hold BOOT, press RESET)
-make program-dfu
-
 # Flash using debugger probe
 make program
 ```

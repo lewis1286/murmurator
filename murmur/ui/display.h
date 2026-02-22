@@ -11,6 +11,7 @@ enum class DisplayPage {
     FLOCK_VIEW,      // Boid visualization
     PARAMETERS,      // Parameter values
     WAVEFORM,        // Audio waveform
+    SCALE_SETTINGS,  // Scale quantizer settings
     NUM_PAGES
 };
 
@@ -28,6 +29,8 @@ public:
     void DrawParameters(const BoidsParams& params, size_t num_boids,
                         float freq_range);
     void DrawWaveform(const float* buffer, size_t size);
+    void DrawScaleSettings(int root, int scale_idx, int base_oct,
+                           int cursor, int span_oct, float freq_range);
 
     void Clear();
     void Update();

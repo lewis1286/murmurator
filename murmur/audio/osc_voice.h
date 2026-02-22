@@ -63,6 +63,12 @@ struct OscVoice {
         target_z    = z;
     }
 
+    // Bypass freq smoothing: jump immediately to target (for scale-quantized mode).
+    void SnapFreq(float freq) {
+        target_freq  = freq;
+        current_freq = freq;
+    }
+
     void SetActive(bool a) {
         active = a;
         if (!a) {

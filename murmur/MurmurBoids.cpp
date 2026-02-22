@@ -2,6 +2,7 @@
 #include "daisy_patch.h"
 #include "audio/osc_voice.h"
 #include "audio/simple_reverb.h"
+#include "audio/scale_quantizer.h"
 #include "boids/boids.h"
 #include "ui/display.h"
 #include "ui/led_grid.h"
@@ -31,8 +32,13 @@ murmur::LedGrid led_grid;
 // Control parameters
 float separation_weight = 1.0f;   // CTRL_1
 float cohesion_weight = 1.0f;     // CTRL_2
-float freq_range = 600.0f;        // CTRL_3: frequency spread in Hz
+float freq_range = 600.0f;        // CTRL_3: frequency spread in Hz (scale=OFF)
 float alignment_weight = 1.0f;    // CTRL_4
+
+// Scale quantizer (default: root=A, OFF, octave=3)
+murmur::ScaleQuantizer scale_quantizer;
+int settings_cursor = 0;  // 0=root, 1=scale, 2=base_octave
+int span_octaves    = 3;  // CTRL_3 value when scale mode is active
 
 // Audio parameters
 constexpr float FREQ_MIN = 200.0f;
@@ -166,8 +172,9 @@ void UpdateVoicesFromBoids() {
     for (int i = 0; i < num_boids; i++) {
         const murmur::Boid& boid = flock.GetBoid(i);
 
-        // y -> frequency
-        float freq = FREQ_MIN + boid.position.y * freq_range;
+        // y -> frequency (via scale quantizer; falls through to linear when OFF)
+        float freq = scale_quantizer.Quantize(
+            boid.position.y, FREQ_MIN, freq_range, span_octaves);
 
         // z -> amplitude (reversed: z=0 loud/close, z=1 quiet/far)
         float amp = (1.0f - boid.position.z) * max_amp_per_voice;
@@ -176,6 +183,11 @@ void UpdateVoicesFromBoids() {
         float pan = boid.position.x * 2.0f - 1.0f;
 
         voices[i].SetParams(freq, amp, pan, boid.position.z);
+        // In scale mode, snap freq immediately so boids land on discrete notes
+        // rather than gliding through them (amp/pan still smooth normally).
+        if (scale_quantizer.GetScale() != murmur::ScaleType::OFF) {
+            voices[i].SnapFreq(freq);
+        }
         voices[i].UpdateSmoothing();
     }
 }
@@ -193,42 +205,87 @@ void UpdateControls() {
     cohesion_weight = patch.GetKnobValue(DaisyPatch::CTRL_2) * 2.0f;
     boids_params.cohesion_weight = cohesion_weight;
 
-    // CTRL_3: Frequency range (50-800 Hz spread)
-    freq_range = 50.0f + patch.GetKnobValue(DaisyPatch::CTRL_3) * 750.0f;
+    // CTRL_3: dual-mode — Hz range when scale=OFF, octave span when scale active
+    if (scale_quantizer.GetScale() == murmur::ScaleType::OFF) {
+        freq_range = 50.0f + patch.GetKnobValue(DaisyPatch::CTRL_3) * 750.0f;
+    } else {
+        span_octaves = 1 + static_cast<int>(patch.GetKnobValue(DaisyPatch::CTRL_3) * 4.0f);
+        if (span_octaves < 1) span_octaves = 1;
+        if (span_octaves > 4) span_octaves = 4;
+    }
 
     // CTRL_4: Alignment weight (0-2)
     alignment_weight = patch.GetKnobValue(DaisyPatch::CTRL_4) * 2.0f;
     boids_params.alignment_weight = alignment_weight;
 
     // === ENCODER ===
-    // Rotation: Number of boids (4-16)
     int inc = patch.encoder.Increment();
-    if (inc != 0) {
-#ifndef MURMUR_UI_ONLY
-        int old_num = num_boids;
-#endif
-        num_boids += inc;
-        if (num_boids < 4) num_boids = 4;
-        if (num_boids > 16) num_boids = 16;
-        flock.SetNumBoids(num_boids);
 
-#ifndef MURMUR_UI_ONLY
-        // Activate/deactivate voices as needed
-        if (num_boids > old_num) {
-            for (int i = old_num; i < num_boids; i++) {
-                voices[i].SetActive(true);
-            }
-        } else {
-            for (int i = num_boids; i < old_num; i++) {
-                voices[i].SetActive(false);
+    if (display.GetPage() == murmur::DisplayPage::SCALE_SETTINGS) {
+        // On Scale Settings page: encoder navigates/edits settings.
+        if (inc != 0) {
+            switch (settings_cursor) {
+                case 0: {
+                    // Root: wrap 0-11
+                    int r = ((scale_quantizer.GetRoot() + inc) % 12 + 12) % 12;
+                    scale_quantizer.SetRoot(r);
+                    break;
+                }
+                case 1: {
+                    // Scale type: wrap 0 to COUNT-1
+                    int s = ((static_cast<int>(scale_quantizer.GetScale()) + inc)
+                             % static_cast<int>(murmur::ScaleType::COUNT)
+                             + static_cast<int>(murmur::ScaleType::COUNT))
+                            % static_cast<int>(murmur::ScaleType::COUNT);
+                    scale_quantizer.SetScale(static_cast<murmur::ScaleType>(s));
+                    break;
+                }
+                case 2:
+                    // Base octave: clamp 1-5
+                    scale_quantizer.SetBaseOctave(scale_quantizer.GetBaseOctave() + inc);
+                    break;
+                default:
+                    break;
             }
         }
-#endif
-    }
 
-    // Press: Cycle display page
-    if (patch.encoder.RisingEdge()) {
-        display.NextPage();
+        // Press: advance cursor; after octave exit back to Flock View
+        if (patch.encoder.RisingEdge()) {
+            if (settings_cursor < 2) {
+                settings_cursor++;
+            } else {
+                settings_cursor = 0;
+                display.NextPage();  // exits SCALE_SETTINGS → FLOCK_VIEW
+            }
+        }
+    } else {
+        // All other pages: encoder changes boid count + cycles page.
+        if (inc != 0) {
+#ifndef MURMUR_UI_ONLY
+            int old_num = num_boids;
+#endif
+            num_boids += inc;
+            if (num_boids < 4)  num_boids = 4;
+            if (num_boids > 16) num_boids = 16;
+            flock.SetNumBoids(num_boids);
+
+#ifndef MURMUR_UI_ONLY
+            if (num_boids > old_num) {
+                for (int i = old_num; i < num_boids; i++) {
+                    voices[i].SetActive(true);
+                }
+            } else {
+                for (int i = num_boids; i < old_num; i++) {
+                    voices[i].SetActive(false);
+                }
+            }
+#endif
+        }
+
+        // Press: cycle display page
+        if (patch.encoder.RisingEdge()) {
+            display.NextPage();
+        }
     }
 
     // === GATE INPUTS ===
@@ -252,6 +309,16 @@ void UpdateDisplay() {
 
         case murmur::DisplayPage::WAVEFORM:
             display.DrawWaveform(wave_display, WAVE_DISPLAY_SIZE);
+            break;
+
+        case murmur::DisplayPage::SCALE_SETTINGS:
+            display.DrawScaleSettings(
+                scale_quantizer.GetRoot(),
+                static_cast<int>(scale_quantizer.GetScale()),
+                scale_quantizer.GetBaseOctave(),
+                settings_cursor,
+                span_octaves,
+                freq_range);
             break;
 
         default:

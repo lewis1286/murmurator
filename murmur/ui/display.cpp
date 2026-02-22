@@ -48,9 +48,9 @@ void Display::DrawBoid(const Boid& boid, bool highlight) {
     // Negate vy because screen-y is inverted (y increases downward on OLED)
     float angle = atan2f(-boid.velocity.y, boid.velocity.x);
 
-    // Triangle size varies with z (amplitude): louder = bigger
-    // z ranges 0-1, map to triangle size 2-6 pixels
-    float size = 2.0f + boid.position.z * 4.0f;
+    // Triangle size varies with z (amplitude): louder = bigger.
+    // z=0 is closest/loudest (large triangle), z=1 is farthest/quietest (small).
+    float size = 2.0f + (1.0f - boid.position.z) * 4.0f;
     if (highlight) size += 1.0f;
 
     // Front point
@@ -153,7 +153,7 @@ void Display::DrawParameters(const BoidsParams& params, size_t num_boids,
 
     // Page indicator
     patch_->display.SetCursor(0, 54);
-    patch_->display.WriteString("[2/3] Params", Font_6x8, true);
+    patch_->display.WriteString("[2/4] Params", Font_6x8, true);
 
     Update();
 }
@@ -184,7 +184,54 @@ void Display::DrawWaveform(const float* buffer, size_t size) {
 
     // Page indicator (below waveform area)
     patch_->display.SetCursor(0, 56);
-    patch_->display.WriteString("[3/3] Wave", Font_6x8, true);
+    patch_->display.WriteString("[3/4] Wave", Font_6x8, true);
+
+    Update();
+}
+
+void Display::DrawScaleSettings(int root, int scale_idx, int base_oct,
+                                 int cursor, int span_oct, float freq_range) {
+    Clear();
+    DrawTitle("SCALE SETTINGS");
+
+    // Local statics — same TU only, no ODR issues.
+    static const char* root_names[]  = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+    static const char* scale_names[] = {"Linear","Major","Nat.Minor","Dorian",
+                                         "Pent.Maj","Pent.Min","Lydian","Mixo"};
+
+    char str[32];
+
+    // Root row (cursor 0)
+    patch_->display.SetCursor(0, 12);
+    snprintf(str, sizeof(str), "%cRoot: %s",
+             cursor == 0 ? '>' : ' ', root_names[root]);
+    patch_->display.WriteString(str, Font_6x8, true);
+
+    // Scale row (cursor 1)
+    patch_->display.SetCursor(0, 22);
+    snprintf(str, sizeof(str), "%cScale: %s",
+             cursor == 1 ? '>' : ' ', scale_names[scale_idx]);
+    patch_->display.WriteString(str, Font_6x8, true);
+
+    // Octave row (cursor 2)
+    patch_->display.SetCursor(0, 32);
+    snprintf(str, sizeof(str), "%cOctave: %d",
+             cursor == 2 ? '>' : ' ', base_oct);
+    patch_->display.WriteString(str, Font_6x8, true);
+
+    // CTRL_3 info row
+    patch_->display.SetCursor(0, 42);
+    if (scale_idx == 0) {
+        snprintf(str, sizeof(str), " Frq: %dHz", static_cast<int>(freq_range));
+    } else {
+        snprintf(str, sizeof(str), " %s%d: %d oct span",
+                 root_names[root], base_oct, span_oct);
+    }
+    patch_->display.WriteString(str, Font_6x8, true);
+
+    // Navigation hint
+    patch_->display.SetCursor(0, 54);
+    patch_->display.WriteString(" enc>next  [4/4]", Font_6x8, true);
 
     Update();
 }
