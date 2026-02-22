@@ -182,6 +182,7 @@ void UpdateVoicesFromBoids() {
         // x -> pan (-1 to +1)
         float pan = boid.position.x * 2.0f - 1.0f;
 
+        voices[i].reverb_send_scale = max_amp_per_voice;
         voices[i].SetParams(freq, amp, pan, boid.position.z);
         // In scale mode, snap freq immediately so boids land on discrete notes
         // rather than gliding through them (amp/pan still smooth normally).

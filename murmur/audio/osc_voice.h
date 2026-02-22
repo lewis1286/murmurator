@@ -25,7 +25,8 @@ struct OscVoice {
     float current_amp;
     float current_pan;
     float current_z;
-    float current_reverb_send;  // amp * (1 - z): far boids send more to reverb bus
+    float current_reverb_send;  // z * reverb_send_scale: far boids send more to reverb bus
+    float reverb_send_scale;    // Set to max_amp_per_voice so send stays within budget
     float last_sample;    // Filtered sample, cached for right channel and reverb send
     bool active;
 
@@ -52,6 +53,7 @@ struct OscVoice {
         current_pan  = 0.0f;
         current_z    = 0.5f;
         current_reverb_send = 0.0f;
+        reverb_send_scale   = 1.0f;
         last_sample  = 0.0f;
         active = false;
     }
@@ -99,11 +101,11 @@ struct OscVoice {
         gain_l = (1.0f - pan_norm) * current_amp;
         gain_r = pan_norm           * current_amp;
 
-        // Reverb bus send: z, applied to unit-amplitude oscillator output.
-        // z=0 (close): send=0, dry=max — fully dry.
-        // z=0.5:       send=0.5 — balanced mix.
-        // z=1 (far):   send=1.0, dry=0 — heard only as diffuse reverb tail.
-        current_reverb_send = current_z;
+        // Reverb bus send: z scaled by reverb_send_scale (= max_amp_per_voice).
+        // Keeps wet contribution within the same amplitude budget as direct output:
+        //   direct = (1-z) * max_amp_per_voice,  reverb = z * max_amp_per_voice.
+        // Without this, 16 voices at z=0.5 saturate the reverb bus (~4× over budget).
+        current_reverb_send = current_z * reverb_send_scale;
     }
 
     // Process one sample — filters oscillator output. Caches result for right channel
