@@ -72,9 +72,9 @@ murmurator/
 
 | Knob | Parameter | Range | Description |
 |------|-----------|-------|-------------|
-| CTRL_1 | Separation | 0-2 | Spreads boids apart → wider frequency/pan spread |
-| CTRL_2 | Cohesion | 0-2 | Pulls boids together → focused, unison-like sound |
-| CTRL_3 | Freq Range | 50-800 Hz | Controls frequency spread of oscillators |
+| CTRL_1 | Density | 0-1 | CCW = min separation (cluster), CW = max separation (spread) |
+| CTRL_2 | (reserved) | — | — |
+| CTRL_3 | Freq Range / Span | 50-800 Hz / 1-4 oct | Hz spread (scale=OFF) or octave span (scale active) |
 | CTRL_4 | Alignment | 0-2 | Velocity alignment → synchronized movement |
 
 | Gate | Function |

@@ -30,8 +30,7 @@ murmur::Display display;
 murmur::LedGrid led_grid;
 
 // Control parameters
-float separation_weight = 1.0f;   // CTRL_1
-float cohesion_weight = 1.0f;     // CTRL_2
+float density = 0.5f;             // CTRL_1: CCW=max separation, CW=max cohesion
 float freq_range = 600.0f;        // CTRL_3: frequency spread in Hz (scale=OFF)
 float alignment_weight = 1.0f;    // CTRL_4
 
@@ -112,9 +111,9 @@ int main(void) {
 
     // Initialize boids
     flock.Init(num_boids);
-    boids_params.separation_weight = separation_weight;
-    boids_params.alignment_weight = alignment_weight;
-    boids_params.cohesion_weight = cohesion_weight;
+    boids_params.separation_weight = density * 2.0f;
+    boids_params.cohesion_weight   = (1.0f - density) * 2.0f;
+    boids_params.alignment_weight  = alignment_weight;
     boids_params.perception_radius = 0.25f;
     boids_params.max_speed = 0.3f;
     boids_params.max_force = 0.02f;
@@ -198,13 +197,12 @@ void UpdateControls() {
     patch.ProcessDigitalControls();
 
     // === KNOBS ===
-    // CTRL_1: Separation weight (0-2)
-    separation_weight = patch.GetKnobValue(DaisyPatch::CTRL_1) * 2.0f;
-    boids_params.separation_weight = separation_weight;
+    // CTRL_1: Density — CCW = min separation (cluster), CW = max separation (spread)
+    density = patch.GetKnobValue(DaisyPatch::CTRL_1);
+    boids_params.separation_weight = density * 2.0f;
+    boids_params.cohesion_weight   = (1.0f - density) * 2.0f;
 
-    // CTRL_2: Cohesion weight (0-2)
-    cohesion_weight = patch.GetKnobValue(DaisyPatch::CTRL_2) * 2.0f;
-    boids_params.cohesion_weight = cohesion_weight;
+    // CTRL_2: (reserved)
 
     // CTRL_3: dual-mode — Hz range when scale=OFF, octave span when scale active
     if (scale_quantizer.GetScale() == murmur::ScaleType::OFF) {

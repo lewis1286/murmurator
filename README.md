@@ -13,12 +13,6 @@ Frequency is a natural but maybe uninteresting choice for `y`. Alternatives to e
 - **Reverb send** — y controls wet/dry; higher boids sound more spacious
 - **Detune** — y offsets from a fixed root pitch; flock movement creates subtle chorusing
 
-### Chord/scale quantization
-Instead of a continuous frequency range, quantize `y` to a user-selectable scale/chord. Ideas:
-- User picks root note + mode (major, minor, pentatonic, etc.)
-- Boids snap to the nearest scale degree as they move
-- Could expose as a menu option alongside free-running mode
-
 ## 2. Bring back granular synthesis
 The old granular engine (circular_buffer, grain_voice, grain_pool, scheduler) is still in the repo. Possible hybrid:
 - Boids control grain parameters (playback position, grain size, pitch, pan) instead of — or alongside — the sine oscillators

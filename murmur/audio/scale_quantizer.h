@@ -21,8 +21,8 @@ enum class ScaleType : uint8_t {
 
 class ScaleQuantizer {
 public:
-    // Default: root=A (9), scale=OFF, octave=3
-    ScaleQuantizer() : root_(9), scale_(ScaleType::OFF), base_octave_(3) {}
+    // Default: root=A (9), Pentatonic Major, octave=3
+    ScaleQuantizer() : root_(9), scale_(ScaleType::PENTATONIC_MAJ), base_octave_(3) {}
 
     void SetRoot(int root) {
         if (root < 0)  root = 0;

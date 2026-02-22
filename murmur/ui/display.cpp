@@ -113,20 +113,11 @@ void Display::DrawParameters(const BoidsParams& params, size_t num_boids,
 
     char str[32];
 
-    // Separation (newlib-nano doesn't support %f, so format manually)
-    int sep_i = static_cast<int>(params.separation_weight);
-    int sep_f = static_cast<int>((params.separation_weight - sep_i) * 100);
-    if (sep_f < 0) sep_f = -sep_f;
+    // Density (derived: cohesion_weight = density * 2)
+    float density = params.cohesion_weight * 0.5f;
+    int den_i = static_cast<int>(density * 100);
     patch_->display.SetCursor(0, 12);
-    snprintf(str, sizeof(str), "Sep: %d.%02d", sep_i, sep_f);
-    patch_->display.WriteString(str, Font_6x8, true);
-
-    // Cohesion
-    int coh_i = static_cast<int>(params.cohesion_weight);
-    int coh_f = static_cast<int>((params.cohesion_weight - coh_i) * 100);
-    if (coh_f < 0) coh_f = -coh_f;
-    patch_->display.SetCursor(64, 12);
-    snprintf(str, sizeof(str), "Coh: %d.%02d", coh_i, coh_f);
+    snprintf(str, sizeof(str), "Density: %d%%", den_i);
     patch_->display.WriteString(str, Font_6x8, true);
 
     // Freq Range
