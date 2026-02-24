@@ -1,75 +1,66 @@
 # Murmur Boids
 
-A granular synthesis module for [Daisy Patch](https://www.electro-smith.com/daisy/patch) where a flock of boids controls grain parameters. Each boid represents a grain voice—its 2D position and velocity map to playback position, pitch, grain size, and stereo pan.
-
-
-# Ideas & Future Exploration
-
-## 1. Rethink the Y-axis parameter
-Frequency is a natural but maybe uninteresting choice for `y`. Alternatives to explore:
-- **Wave-folding** — y controls fold amount, adds harmonic richness without pitch shift
-- **Filter cutoff** — y sweeps a lowpass/bandpass; flock height becomes brightness
-- **Vibrato/FM depth** — y controls modulation index; tightly clustered boids = subtle, spread = intense
-- **Reverb send** — y controls wet/dry; higher boids sound more spacious
-- **Detune** — y offsets from a fixed root pitch; flock movement creates subtle chorusing
-
-## 2. Bring back granular synthesis
-The old granular engine (circular_buffer, grain_voice, grain_pool, scheduler) is still in the repo. Possible hybrid:
-- Boids control grain parameters (playback position, grain size, pitch, pan) instead of — or alongside — the sine oscillators
-- Keep the 3D boid sim; map axes to grain params the same way as current osc params
-
-## 3. Assignable X/Y/Z menu
-Add an in-module menu (encoder-driven) so the user can assign any boid axis to any audio parameter:
-- X, Y, Z each get a slot: frequency, amplitude, pan, filter cutoff, detune, reverb send, wave-fold, etc.
-- Lets users discover their own mappings without reflashing
-- Could be a fourth display page (settings page)
-
-## 4. Merge separation + cohesion into a single "flock density" control
-Currently CTRL_1 (separation) and CTRL_2 (cohesion) are separate, which is redundant — they pull in opposite directions. Proposal:
-- Single **Density** knob: CCW = max separation (boids repel, spread out), center = balanced, CW = max cohesion (boids cluster)
-- Internally: `separation = map(density, 0, 1, 2, 0)`, `cohesion = map(density, 0, 1, 0, 2)`
-- Frees up a knob — could be repurposed for a new parameter (e.g. a fifth axis like filter cutoff)
-
-# Demo
-
-Feed audio into the module, and watch as the boids flock across the OLED display. Their movement creates evolving granular textures—separation spreads the sound across the stereo field and pitch range, while cohesion creates focused, clustered tones.
+A [Daisy Patch](https://www.electro-smith.com/daisy/patch) module where a flock of 3D boids controls oscillator voices. Each boid is an always-on oscillator — its 3D position maps directly to audio parameters: **x = pan, y = frequency, z = amplitude**.
 
 ## Features
 
-- **4-second live audio buffer** in SDRAM for granular playback
-- **16-voice polyphony** with voice stealing
-- **Boids flocking simulation** with separation, alignment, and cohesion
-- **Spatial partitioning** for efficient neighbor queries (O(n) vs O(n²))
-- **OLED visualization** of flock behavior
-- **Gate-triggered buffer freeze** and flock scatter
+- **3D boids flocking simulation** — separation, alignment, cohesion, and per-boid wander for continuous swooping flight
+- **Up to 16 oscillator voices** (4-16, set via encoder)
+- **Waveform morphing** — continuous blend from sine → triangle → square via CTRL_4
+- **Scale quantization** — snap boid frequencies to a musical scale (root, mode, octave, chord progression)
+- **Reverb bus** — z-axis distance model adds spatial depth to far boids
+- **OLED visualization** — flock view, parameter readout, scale settings
+- **LED grid** — 4×4 density visualization
 
 ## Controls
 
-| Knob | Parameter | Description |
-|------|-----------|-------------|
-| CTRL_1 | Separation | Spreads boids apart → wider spectral spread |
-| CTRL_2 | Cohesion | Pulls boids together → focused, clustered sound |
-| CTRL_3 | Grain Density | Base trigger rate (1-50 Hz) |
-| CTRL_4 | Pitch Range | Y-axis pitch mapping (0-24 semitones) |
+| Knob | Parameter | Range | Description |
+|------|-----------|-------|-------------|
+| CTRL_1 | Density | 0-1 | CCW = spread (max separation), CW = cluster (max cohesion) |
+| CTRL_2 | Alignment | 0-2 | Velocity alignment — how synchronized the flock moves |
+| CTRL_3 | Speed | 0.05-1.5 | Boid max speed → rate of audio parameter change |
+| CTRL_4 | Wave Morph | sine→tri→square | CCW = pure sine, center = triangle, CW = square |
 
 | Gate | Function |
 |------|----------|
-| GATE_1 | Freeze/unfreeze buffer |
-| GATE_2 | Scatter flock (randomize positions) |
+| GATE_1 | (reserved) |
+| GATE_2 | Scatter flock (randomize all boid positions) |
 
 | Encoder | Function |
 |---------|----------|
-| Rotate | Number of boids (4-16) |
-| Press | Cycle display pages |
+| Rotate (normal pages) | Change number of boids/voices (4-16) |
+| Rotate (Scale Settings) | Edit selected setting |
+| Press (normal pages) | Cycle display pages |
+| Press (Scale Settings) | Advance cursor through settings / exit |
 
-## Boid → Grain Mapping
+## Display Pages
 
-| Boid Property | Grain Parameter |
-|---------------|-----------------|
-| position.x | Buffer playback position |
-| position.y | Pitch (±pitch_range semitones) |
-| velocity magnitude | Grain size (faster = smaller) |
-| velocity angle | Stereo pan |
+1. **Flock View** `[1/3]` — Boid triangles; size varies with z (amplitude); low freq at bottom
+2. **Parameters** `[2/3]` — Density, Alignment, Speed, Wave morph, boid count, axis mapping
+3. **Scale Settings** `[3/3]` — Root note, scale type, base octave, chord progression
+
+## Boid → Audio Mapping
+
+| Boid Axis | Audio Parameter | Notes |
+|-----------|----------------|-------|
+| x (0-1) | Stereo pan | Linear, L to R |
+| y (0-1) | Frequency | 200 Hz base + spread; quantized to scale when active |
+| z (0-1) | Amplitude | z=0 loud/close, z=1 quiet/far; never fully silent |
+
+Waveform shape is global (CTRL_4), shared across all voices. The z-axis also opens/closes a LPF per voice — far boids are darker, close boids are brighter.
+
+## Scale Settings
+
+Accessed via display page 3. Encoder rotates to edit, press to advance cursor:
+
+| Row | Setting | Options |
+|-----|---------|---------|
+| Root | Root note | C through B |
+| Scale | Scale type | Linear (off), Major, Nat. Minor, Dorian, Pent. Major, Pent. Minor, Lydian, Mixolydian |
+| Octave | Base octave | 1-5 |
+| ChProg | Chord progression | OFF, 10s, 15s interval cycling I→IV→V→I |
+
+When scale is set to Linear, frequencies map continuously across the Hz range. All other scales snap boid y-positions to the nearest scale degree.
 
 ## Building
 
@@ -77,7 +68,7 @@ Feed audio into the module, and watch as the boids flock across the OLED display
 
 - ARM GCC toolchain (`arm-none-eabi-gcc`)
 - Make
-- [dfu-util](http://dfu-util.sourceforge.net/) for flashing
+- Debugger probe (ST-Link or compatible) for flashing
 
 ### Clone with submodules
 
@@ -107,42 +98,54 @@ cd murmur
 # Full build (audio + UI)
 make clean && make
 
-# UI-only build (no audio, for testing display/knobs/boids)
+# UI-only build (no audio — for testing display/knobs/boids without sound)
 make clean && make ui-only
 
 # Flash using debugger probe
 make program
 ```
 
-> **Note:** Always run `make clean` when switching between full and UI-only builds.
+> Always run `make clean` when switching between full and UI-only builds.
+
+### Build variants
+
+| Command | What runs |
+|---------|-----------|
+| `make` | Full audio + boids + UI |
+| `make ui-only` | Boids + UI only (no audio callback) |
+| `make debug` | Full build with `-Og` for debugger |
+| `make debug-ui-only` | UI-only with `-Og` |
 
 ## Project Structure
 
 ```
 murmurator/
-├── libDaisy/                 # Hardware abstraction (submodule)
-├── DaisySP/                  # DSP library (submodule)
+├── libDaisy/                      # Hardware abstraction (submodule)
+├── DaisySP/                       # DSP library (submodule)
 └── murmur/
-    ├── MurmurBoids.cpp       # Main application
+    ├── MurmurBoids.cpp            # Main application
+    ├── Makefile
     ├── audio/
-    │   ├── circular_buffer   # 4-second ring buffer
-    │   ├── grain_voice       # Single grain with Hann envelope
-    │   └── grain_pool        # 16-voice polyphony
+    │   ├── osc_voice.h            # Oscillator voice (phase accumulator, waveform morph, LPF)
+    │   ├── simple_reverb.h        # Reverb bus for z-axis distance model
+    │   └── scale_quantizer.h      # Scale/chord quantization for y-axis frequency
     ├── boids/
-    │   ├── vec2.h            # 2D vector math
-    │   ├── boids             # Flock simulation
-    │   └── scheduler         # Boid → grain triggering
+    │   ├── vec3.h                 # 3D vector math + FastInvSqrt
+    │   ├── boids.h/.cpp           # 3D flock simulation (separation, alignment, cohesion, wander)
+    │   └── vec2.h                 # (legacy, kept for reference)
     └── ui/
-        ├── display           # OLED rendering
-        └── led_grid          # LED visualization
+        ├── display.h/.cpp         # OLED rendering (3 pages)
+        └── led_grid.h/.cpp        # 4×4 LED density visualization
 ```
 
-## License
+## Memory
 
-MIT
+| Region | Used | Total | % |
+|--------|------|-------|---|
+| FLASH | ~107 KB | 128 KB | ~83.7% |
+| SRAM | ~72 KB | 512 KB | ~14.1% |
 
 ## Acknowledgments
 
 - [Electro-Smith](https://www.electro-smith.com/) for the Daisy platform
 - Craig Reynolds for the original [boids algorithm](https://www.red3d.com/cw/boids/)
-- Inspired by Mutable Instruments Clouds

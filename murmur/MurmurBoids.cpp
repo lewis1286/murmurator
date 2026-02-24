@@ -30,14 +30,18 @@ murmur::Display display;
 murmur::LedGrid led_grid;
 
 // Control parameters
-float density = 0.5f;             // CTRL_1: CCW=max separation, CW=max cohesion
-float freq_range = 600.0f;        // CTRL_3: frequency spread in Hz (scale=OFF)
-float alignment_weight = 1.0f;    // CTRL_4
+float density          = 0.5f;   // CTRL_1: CCW=max separation, CW=max cohesion
+float alignment_weight = 1.0f;   // CTRL_2
+// CTRL_3: speed (handled inline in UpdateControls)
+float morph            = 1.0f;   // CTRL_4: waveform morph (0=sine, 1=tri, 2=square)
+
+// Frequency range — fixed (no longer knob-controlled)
+float freq_range = 400.0f;
 
 // Scale quantizer (default: root=A, OFF, octave=3)
 murmur::ScaleQuantizer scale_quantizer;
 int settings_cursor = 0;  // 0=root, 1=scale, 2=base_octave, 3=chord_prog
-int span_octaves    = 3;  // CTRL_3 value when scale mode is active
+int span_octaves    = 3;  // octave span when scale mode is active
 
 // Chord progression: I (root), IV (root+5), V (root+7), I (root) cycling every N seconds
 constexpr int   CHORD_OFFSETS[4] = {0, 5, 7, 0};
@@ -54,9 +58,6 @@ constexpr float MAX_AMP_TOTAL = 0.8f;  // Total max amplitude across all voices
 // State
 int num_boids = 8;
 float sample_rate = 48000.0f;
-
-// Wave type: 0=SINE, 1=TRIANGLE, 2=SQUARE
-int wave_type = 1;  // default: TRIANGLE
 
 // Timing
 uint32_t last_display_update = 0;
@@ -187,6 +188,7 @@ void UpdateVoicesFromBoids() {
         float pan = boid.position.x * 2.0f - 1.0f;
 
         voices[i].SetParams(freq, amp, pan, boid.position.z);
+        voices[i].SetMorph(morph);
         // In scale mode, snap freq immediately so boids land on discrete notes
         // rather than gliding through them (amp/pan still smooth normally).
         if (scale_quantizer.GetScale() != murmur::ScaleType::OFF) {
@@ -206,22 +208,16 @@ void UpdateControls() {
     boids_params.separation_weight = density * 2.0f;
     boids_params.cohesion_weight   = (1.0f - density) * 2.0f;
 
-    // CTRL_2: Speed (max_speed 0.05-0.6); max_force coupled so boids can reach target speed
-    boids_params.max_speed = 0.05f + patch.GetKnobValue(DaisyPatch::CTRL_2) * 1.45f;
+    // CTRL_2: Alignment weight (0-2)
+    alignment_weight = patch.GetKnobValue(DaisyPatch::CTRL_2) * 2.0f;
+    boids_params.alignment_weight = alignment_weight;
+
+    // CTRL_3: Speed (max_speed 0.05-1.5); max_force coupled so boids can reach target speed
+    boids_params.max_speed = 0.05f + patch.GetKnobValue(DaisyPatch::CTRL_3) * 1.45f;
     boids_params.max_force = boids_params.max_speed * 0.5f;
 
-    // CTRL_3: dual-mode — Hz range when scale=OFF, octave span when scale active
-    if (scale_quantizer.GetScale() == murmur::ScaleType::OFF) {
-        freq_range = 50.0f + patch.GetKnobValue(DaisyPatch::CTRL_3) * 750.0f;
-    } else {
-        span_octaves = 1 + static_cast<int>(patch.GetKnobValue(DaisyPatch::CTRL_3) * 4.0f);
-        if (span_octaves < 1) span_octaves = 1;
-        if (span_octaves > 4) span_octaves = 4;
-    }
-
-    // CTRL_4: Alignment weight (0-2)
-    alignment_weight = patch.GetKnobValue(DaisyPatch::CTRL_4) * 2.0f;
-    boids_params.alignment_weight = alignment_weight;
+    // CTRL_4: Waveform morph (0=sine, 1=triangle, 2=square)
+    morph = patch.GetKnobValue(DaisyPatch::CTRL_4) * 2.0f;
 
     // === ENCODER ===
     int inc = patch.encoder.Increment();
@@ -275,22 +271,6 @@ void UpdateControls() {
                 settings_cursor = 0;
                 display.NextPage();  // exits SCALE_SETTINGS → FLOCK_VIEW
             }
-        }
-    } else if (display.GetPage() == murmur::DisplayPage::WAVE_SELECT) {
-        // On Wave Select page: encoder cycles waveform type, press goes to next page.
-        if (inc != 0) {
-            wave_type = ((wave_type + inc) % 3 + 3) % 3;
-#ifndef MURMUR_UI_ONLY
-            uint8_t wf = wave_type == 0 ? daisysp::Oscillator::WAVE_SIN :
-                         wave_type == 1 ? daisysp::Oscillator::WAVE_TRI :
-                                          daisysp::Oscillator::WAVE_POLYBLEP_SQUARE;
-            for (size_t i = 0; i < murmur::MAX_BOIDS; i++) {
-                voices[i].osc.SetWaveform(wf);
-            }
-#endif
-        }
-        if (patch.encoder.RisingEdge()) {
-            display.NextPage();
         }
     } else {
         // All other pages: encoder changes boid count + cycles page.
@@ -351,11 +331,7 @@ void UpdateDisplay() {
         }
 
         case murmur::DisplayPage::PARAMETERS:
-            display.DrawParameters(boids_params, num_boids, freq_range);
-            break;
-
-        case murmur::DisplayPage::WAVE_SELECT:
-            display.DrawWaveSelect(wave_type);
+            display.DrawParameters(boids_params, num_boids, morph);
             break;
 
         case murmur::DisplayPage::SCALE_SETTINGS:

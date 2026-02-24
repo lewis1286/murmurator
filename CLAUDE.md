@@ -5,7 +5,8 @@ A Daisy Patch module where a flock of 3D boids controls oscillator voices. Each 
 ## Current Status
 
 - ✓ 3D boids simulation (Vec3, single-pass flocking with brute-force neighbors)
-- ✓ Oscillator voices (DaisySP Oscillator, one per boid, linear panning)
+- ✓ Oscillator voices (custom phase accumulator, waveform morph: sine→triangle→square)
+- ✓ Per-boid wander angle for continuous swooping flight (no straight-line coasting)
 - ✓ OLED visualization (triangle size varies with z/amplitude, low freq at bottom)
 - ✓ Full, UI-only, and debug builds working
 - ✓ 500Hz boids tick rate with FastInvSqrt optimization
@@ -14,8 +15,7 @@ A Daisy Patch module where a flock of 3D boids controls oscillator voices. Each 
 
 1. **Rethink Y-axis parameter** — frequency may be too simple. Candidates: wave-folding, filter cutoff, vibrato/FM depth, reverb send, detune. Also explore quantizing Y to a scale/chord (user picks root + mode, boids snap to scale degrees).
 2. **Granular synthesis revival** — old engine (circular_buffer, grain_voice, grain_pool, scheduler) is still in repo. Could map 3D boid axes to grain params (playback position, size, pitch, pan) instead of or alongside sine oscillators.
-3. **Assignable X/Y/Z menu** — encoder-driven settings page (4th display page) where user assigns each boid axis to any audio parameter (freq, amp, pan, filter, detune, reverb, wave-fold, etc.) without reflashing.
-4. **Single "Flock Density" knob** — merge CTRL_1 (separation) and CTRL_2 (cohesion) into one bipolar control. CCW = max separation, CW = max cohesion. Frees a knob for a new parameter.
+3. **Assignable X/Y/Z menu** — encoder-driven settings page where user assigns each boid axis to any audio parameter (freq, amp, pan, filter, detune, reverb, wave-fold, etc.) without reflashing.
 
 Previous granular synthesis engine files (circular_buffer, grain_voice, grain_pool, scheduler) kept in repo for reference but removed from build.
 
@@ -73,9 +73,9 @@ murmurator/
 | Knob | Parameter | Range | Description |
 |------|-----------|-------|-------------|
 | CTRL_1 | Density | 0-1 | CCW = min separation (cluster), CW = max separation (spread) |
-| CTRL_2 | Speed | 0.05-1.5 | Boid max speed → rate of parameter change |
-| CTRL_3 | Freq Range / Span | 50-800 Hz / 1-4 oct | Hz spread (scale=OFF) or octave span (scale active) |
-| CTRL_4 | Alignment | 0-2 | Velocity alignment → synchronized movement |
+| CTRL_2 | Alignment | 0-2 | Velocity alignment → synchronized movement |
+| CTRL_3 | Speed | 0.05-1.5 | Boid max speed → rate of parameter change |
+| CTRL_4 | Wave Morph | sine→tri→square | CCW = sine, center = triangle, CW = square |
 
 | Gate | Function |
 |------|----------|
@@ -90,8 +90,8 @@ murmurator/
 ## Display Pages
 
 1. **Flock View** - Boid triangles on OLED; triangle size varies with z (amplitude); low freq at bottom, high freq at top
-2. **Parameters** - Current control values (integer-formatted for newlib-nano compatibility) and mapping info
-3. **Waveform** - Real-time summed oscillator output
+2. **Parameters** - Density, Alignment, Speed, Wave morph label, boid count, and axis mapping
+3. **Scale Settings** - Root note, scale type, base octave, chord progression (encoder navigates/edits)
 
 ## How It Works
 
@@ -113,8 +113,8 @@ murmurator/
 
 | Region | Used | Total | % |
 |--------|------|-------|---|
-| FLASH | 103KB | 128KB | 78.7% |
-| SRAM | 56KB | 512KB | 10.7% |
+| FLASH | ~107KB | 128KB | ~83.7% |
+| SRAM | ~72KB | 512KB | ~14.1% |
 | SDRAM | 0 | 64MB | 0% |
 
 ## Build Modes

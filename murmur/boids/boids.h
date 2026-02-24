@@ -19,8 +19,8 @@ constexpr float BOUNDARY_FORCE_XY   = 0.16f;   // 4x max_force for x/y boundarie
 constexpr float BOUNDARY_FORCE_Z    = 0.08f;   // 2x max_force for z boundaries
 
 // Wander: smooth random turning that keeps boids curving through open space
-constexpr float WANDER_STRENGTH  = 0.06f;  // force magnitude (~40% of default max_force)
-constexpr float WANDER_TURN_RATE = 0.10f;  // how fast wander angle drifts per tick (rad)
+constexpr float WANDER_STRENGTH  = 0.16f;  // force magnitude (~40% of default max_force)
+constexpr float WANDER_TURN_RATE = 0.40f;  // how fast wander angle drifts per tick (rad)
 
 struct Boid {
     Vec3 position;      // 0-1 range for all axes (x=pan, y=freq, z=amp)

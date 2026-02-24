@@ -117,7 +117,7 @@ void Display::DrawFlockView(const BoidsFlock& flock, const BoidsParams& params,
 }
 
 void Display::DrawParameters(const BoidsParams& params, size_t num_boids,
-                              float freq_range) {
+                              float morph) {
     Clear();
     DrawTitle("MURMUR PARAMS");
 
@@ -127,26 +127,32 @@ void Display::DrawParameters(const BoidsParams& params, size_t num_boids,
     float density = params.cohesion_weight * 0.5f;
     int den_i = static_cast<int>(density * 100);
     patch_->display.SetCursor(0, 12);
-    snprintf(str, sizeof(str), "Density: %d%%", den_i);
-    patch_->display.WriteString(str, Font_6x8, true);
-
-    // Speed
-    int spd_i = static_cast<int>(params.max_speed * 100);
-    patch_->display.SetCursor(64, 12);
-    snprintf(str, sizeof(str), "Spd: %d%%", spd_i);
-    patch_->display.WriteString(str, Font_6x8, true);
-
-    // Freq Range
-    patch_->display.SetCursor(0, 22);
-    snprintf(str, sizeof(str), "Frq: %dHz", static_cast<int>(freq_range));
+    snprintf(str, sizeof(str), "Den: %d%%", den_i);
     patch_->display.WriteString(str, Font_6x8, true);
 
     // Alignment
     int ali_i = static_cast<int>(params.alignment_weight);
     int ali_f = static_cast<int>((params.alignment_weight - ali_i) * 100);
     if (ali_f < 0) ali_f = -ali_f;
-    patch_->display.SetCursor(64, 22);
+    patch_->display.SetCursor(64, 12);
     snprintf(str, sizeof(str), "Ali: %d.%02d", ali_i, ali_f);
+    patch_->display.WriteString(str, Font_6x8, true);
+
+    // Speed
+    int spd_i = static_cast<int>(params.max_speed * 100);
+    patch_->display.SetCursor(0, 22);
+    snprintf(str, sizeof(str), "Spd: %d%%", spd_i);
+    patch_->display.WriteString(str, Font_6x8, true);
+
+    // Wave morph: show label for current blend position
+    const char* wave_label;
+    if (morph < 0.15f)       wave_label = "SINE";
+    else if (morph < 0.85f)  wave_label = "SIN>TRI";
+    else if (morph < 1.15f)  wave_label = "TRI";
+    else if (morph < 1.85f)  wave_label = "TRI>SQR";
+    else                     wave_label = "SQR";
+    patch_->display.SetCursor(64, 22);
+    snprintf(str, sizeof(str), "Wave:%s", wave_label);
     patch_->display.WriteString(str, Font_6x8, true);
 
     // Number of boids
@@ -160,26 +166,7 @@ void Display::DrawParameters(const BoidsParams& params, size_t num_boids,
 
     // Page indicator
     patch_->display.SetCursor(0, 54);
-    patch_->display.WriteString("[2/4] Params", Font_6x8, true);
-
-    Update();
-}
-
-void Display::DrawWaveSelect(int wave_type) {
-    Clear();
-    DrawTitle("WAVE TYPE");
-
-    static const char* names[] = {"SINE", "TRIANGLE", "SQUARE"};
-
-    for (int i = 0; i < 3; i++) {
-        char str[16];
-        snprintf(str, sizeof(str), "%c %s", i == wave_type ? '>' : ' ', names[i]);
-        patch_->display.SetCursor(0, 14 + i * 10);
-        patch_->display.WriteString(str, Font_6x8, true);
-    }
-
-    patch_->display.SetCursor(0, 56);
-    patch_->display.WriteString("[3/4] enc:cycle", Font_6x8, true);
+    patch_->display.WriteString("[2/3] Params", Font_6x8, true);
 
     Update();
 }
@@ -233,7 +220,7 @@ void Display::DrawScaleSettings(int root, int scale_idx, int base_oct,
 
     // Navigation hint
     patch_->display.SetCursor(0, 54);
-    patch_->display.WriteString(" enc>next  [4/4]", Font_6x8, true);
+    patch_->display.WriteString(" enc>next  [3/3]", Font_6x8, true);
 
     Update();
 }
