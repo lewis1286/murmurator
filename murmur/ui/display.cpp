@@ -85,7 +85,8 @@ void Display::DrawBoid(const Boid& boid, bool highlight) {
     }
 }
 
-void Display::DrawFlockView(const BoidsFlock& flock, const BoidsParams& params) {
+void Display::DrawFlockView(const BoidsFlock& flock, const BoidsParams& params,
+                             const char* chord_label) {
     Clear();
     DrawTitle("MURMUR BOIDS");
 
@@ -97,8 +98,17 @@ void Display::DrawFlockView(const BoidsFlock& flock, const BoidsParams& params) 
         DrawBoid(flock.GetBoid(i), i == 0);
     }
 
-    // Show boid count in corner
     char str[16];
+
+    // Show active chord + root note (e.g. "I:A", "IV:D#") when chord prog is running.
+    // Positioned at x=74 so even the widest label ("IV:D#" = 30px) stays left of
+    // the boid count at x=110.
+    if (chord_label && chord_label[0] != '\0') {
+        patch_->display.SetCursor(74, 2);
+        patch_->display.WriteString(chord_label, Font_6x8, true);
+    }
+
+    // Show boid count in corner
     snprintf(str, sizeof(str), "%d", static_cast<int>(flock.GetNumBoids()));
     patch_->display.SetCursor(110, 2);
     patch_->display.WriteString(str, Font_6x8, true);
@@ -155,39 +165,28 @@ void Display::DrawParameters(const BoidsParams& params, size_t num_boids,
     Update();
 }
 
-void Display::DrawWaveform(const float* buffer, size_t size) {
+void Display::DrawWaveSelect(int wave_type) {
     Clear();
-    DrawTitle("MURMUR WAVE");
+    DrawTitle("WAVE TYPE");
 
-    // Draw waveform from display buffer (captured from audio output)
-    int prev_y = 37;
+    static const char* names[] = {"SINE", "TRIANGLE", "SQUARE"};
 
-    for (size_t x = 0; x < size && x < 128; x++) {
-        float sample = buffer[x];
-        int y = 37 + static_cast<int>(sample * 26);  // 37 is center, +/-26 pixels
-
-        // Clamp
-        if (y < 10) y = 10;
-        if (y > 63) y = 63;
-
-        if (x > 0) {
-            patch_->display.DrawLine(x - 1, prev_y, x, y, true);
-        }
-        prev_y = y;
+    for (int i = 0; i < 3; i++) {
+        char str[16];
+        snprintf(str, sizeof(str), "%c %s", i == wave_type ? '>' : ' ', names[i]);
+        patch_->display.SetCursor(0, 14 + i * 10);
+        patch_->display.WriteString(str, Font_6x8, true);
     }
 
-    // Center line
-    patch_->display.DrawLine(0, 37, 127, 37, true);
-
-    // Page indicator (below waveform area)
     patch_->display.SetCursor(0, 56);
-    patch_->display.WriteString("[3/4] Wave", Font_6x8, true);
+    patch_->display.WriteString("[3/4] enc:cycle", Font_6x8, true);
 
     Update();
 }
 
 void Display::DrawScaleSettings(int root, int scale_idx, int base_oct,
-                                 int cursor, int span_oct, float freq_range) {
+                                 int cursor, int span_oct, float freq_range,
+                                 int chord_prog_mode, int chord_index) {
     Clear();
     DrawTitle("SCALE SETTINGS");
 
@@ -195,6 +194,8 @@ void Display::DrawScaleSettings(int root, int scale_idx, int base_oct,
     static const char* root_names[]  = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
     static const char* scale_names[] = {"Linear","Major","Nat.Minor","Dorian",
                                          "Pent.Maj","Pent.Min","Lydian","Mixo"};
+    static const char* chord_names[] = {"I", "IV", "V", "I"};
+    static const char* prog_labels[] = {"OFF", "10s", "15s"};
 
     char str[32];
 
@@ -216,13 +217,17 @@ void Display::DrawScaleSettings(int root, int scale_idx, int base_oct,
              cursor == 2 ? '>' : ' ', base_oct);
     patch_->display.WriteString(str, Font_6x8, true);
 
-    // CTRL_3 info row
+    // Chord progression row (cursor 3) — only meaningful when scale != Linear
     patch_->display.SetCursor(0, 42);
-    if (scale_idx == 0) {
-        snprintf(str, sizeof(str), " Frq: %dHz", static_cast<int>(freq_range));
+    if (chord_prog_mode == 0 || scale_idx == 0) {
+        snprintf(str, sizeof(str), "%cChProg: %s",
+                 cursor == 3 ? '>' : ' ', prog_labels[chord_prog_mode]);
     } else {
-        snprintf(str, sizeof(str), " %s%d: %d oct span",
-                 root_names[root], base_oct, span_oct);
+        // Show interval and the currently active chord degree
+        snprintf(str, sizeof(str), "%cChProg:%s [%s]",
+                 cursor == 3 ? '>' : ' ',
+                 prog_labels[chord_prog_mode],
+                 chord_names[chord_index]);
     }
     patch_->display.WriteString(str, Font_6x8, true);
 

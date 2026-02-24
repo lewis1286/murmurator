@@ -12,16 +12,21 @@ constexpr size_t MAX_BOIDS = 16;
 constexpr size_t LED_GRID_DIM = 4;  // 4x4 LED grid for density visualization
 
 // Boundary avoidance constants
-constexpr float BOUNDARY_MARGIN_XY  = 0.2f;   // 10% margin on x and y edges
+constexpr float BOUNDARY_MARGIN_XY  = 0.25f;  // margin on x and y edges (wider = earlier turns)
 constexpr float BOUNDARY_MARGIN_Z_LO = 0.10f;  // 5% margin at z=0 (allow near-silence)
 constexpr float BOUNDARY_MARGIN_Z_HI = 0.15f;  // 15% margin at z=1 (avoid sustained max amp)
 constexpr float BOUNDARY_FORCE_XY   = 0.16f;   // 4x max_force for x/y boundaries
 constexpr float BOUNDARY_FORCE_Z    = 0.08f;   // 2x max_force for z boundaries
 
+// Wander: smooth random turning that keeps boids curving through open space
+constexpr float WANDER_STRENGTH  = 0.06f;  // force magnitude (~40% of default max_force)
+constexpr float WANDER_TURN_RATE = 0.10f;  // how fast wander angle drifts per tick (rad)
+
 struct Boid {
     Vec3 position;      // 0-1 range for all axes (x=pan, y=freq, z=amp)
     Vec3 velocity;
     Vec3 acceleration;
+    float wander_angle; // slowly drifting angle for smooth random turning
 
     void ApplyForce(const Vec3& force) {
         acceleration += force;

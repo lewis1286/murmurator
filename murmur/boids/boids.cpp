@@ -27,6 +27,7 @@ void BoidsFlock::Init(size_t num_boids) {
             (Random01() - 0.5f) * 0.01f  // Slower z movement
         );
         boids_[i].acceleration = Vec3(0.0f, 0.0f, 0.0f);
+        boids_[i].wander_angle = Random01() * 6.2832f;  // random start angle 0-2pi
     }
 
     initialized_ = true;
@@ -48,6 +49,7 @@ void BoidsFlock::SetNumBoids(size_t num) {
             (Random01() - 0.5f) * 0.01f
         );
         boids_[i].acceleration = Vec3(0.0f, 0.0f, 0.0f);
+        boids_[i].wander_angle = Random01() * 6.2832f;
     }
 
     num_boids_ = new_num;
@@ -186,12 +188,22 @@ void BoidsFlock::ClampPosition(Vec3& pos) {
 void BoidsFlock::Update(float dt, const BoidsParams& params) {
     if (!initialized_ || num_boids_ == 0) return;
 
-    // Apply flocking + boundary forces
+    // Apply flocking + boundary + wander forces
     for (size_t i = 0; i < num_boids_; i++) {
         Vec3 flocking = ApplyFlockingForces(i, params);
         boids_[i].ApplyForce(flocking);
+
         Vec3 boundary = ComputeBoundaryForce(boids_[i].position);
         boids_[i].ApplyForce(boundary);
+
+        // Wander: drift the angle slowly, apply a constant-magnitude force in that direction.
+        // Using only x-y keeps z independent; the angle drifts as a random walk so
+        // consecutive ticks push in similar directions — creating smooth arcs, not jitter.
+        boids_[i].wander_angle += (Random01() - 0.5f) * WANDER_TURN_RATE;
+        Vec3 wander(cosf(boids_[i].wander_angle) * WANDER_STRENGTH,
+                    sinf(boids_[i].wander_angle) * WANDER_STRENGTH,
+                    0.0f);
+        boids_[i].ApplyForce(wander);
     }
 
     // Update physics

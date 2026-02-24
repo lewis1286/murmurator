@@ -36,8 +36,15 @@ float alignment_weight = 1.0f;    // CTRL_4
 
 // Scale quantizer (default: root=A, OFF, octave=3)
 murmur::ScaleQuantizer scale_quantizer;
-int settings_cursor = 0;  // 0=root, 1=scale, 2=base_octave
+int settings_cursor = 0;  // 0=root, 1=scale, 2=base_octave, 3=chord_prog
 int span_octaves    = 3;  // CTRL_3 value when scale mode is active
+
+// Chord progression: I (root), IV (root+5), V (root+7), I (root) cycling every N seconds
+constexpr int   CHORD_OFFSETS[4] = {0, 5, 7, 0};
+const char* const CHORD_NAMES[4] = {"I", "IV", "V", "I"};
+int      chord_prog_mode     = 0;        // 0=OFF, 1=10s interval, 2=15s interval
+int      chord_index         = 0;        // position in CHORD_OFFSETS[4]
+uint32_t last_chord_change_ms = 0;
 
 // Audio parameters
 constexpr float FREQ_MIN = 200.0f;
@@ -48,11 +55,8 @@ constexpr float MAX_AMP_TOTAL = 0.8f;  // Total max amplitude across all voices
 int num_boids = 8;
 float sample_rate = 48000.0f;
 
-// Waveform display buffer (captured from audio output)
-constexpr size_t WAVE_DISPLAY_SIZE = 128;
-float wave_display[WAVE_DISPLAY_SIZE];
-size_t wave_display_pos = 0;
-size_t wave_display_decimation = 0;
+// Wave type: 0=SINE, 1=TRIANGLE, 2=SQUARE
+int wave_type = 1;  // default: TRIANGLE
 
 // Timing
 uint32_t last_display_update = 0;
@@ -85,14 +89,6 @@ static void AudioCallback(AudioHandle::InputBuffer in,
         out[1][i] = sum_r + rev_out * REVERB_LEVEL;
         out[2][i] = in[2][i];
         out[3][i] = in[3][i];
-
-        // Capture samples for waveform display (decimated)
-        wave_display_decimation++;
-        if (wave_display_decimation >= 8) {
-            wave_display_decimation = 0;
-            wave_display[wave_display_pos] = (out[0][i] + out[1][i]) * 0.5f;
-            wave_display_pos = (wave_display_pos + 1) % WAVE_DISPLAY_SIZE;
-        }
     }
 }
 #endif
@@ -100,6 +96,7 @@ static void AudioCallback(AudioHandle::InputBuffer in,
 int main(void) {
     patch.Init();
     sample_rate = patch.AudioSampleRate();
+    last_chord_change_ms = System::GetNow();
 
     // Initialize oscillator voices and reverb
 #ifndef MURMUR_UI_ONLY
@@ -122,11 +119,6 @@ int main(void) {
     display.Init(&patch);
     led_grid.Init(&patch);
 
-    // Clear waveform display buffer
-    for (size_t i = 0; i < WAVE_DISPLAY_SIZE; i++) {
-        wave_display[i] = 0.0f;
-    }
-
     // Activate initial voices
 #ifndef MURMUR_UI_ONLY
     for (int i = 0; i < num_boids; i++) {
@@ -143,6 +135,18 @@ int main(void) {
         UpdateControls();
 
         uint32_t now = System::GetNow();
+
+        // Chord progression timer — advance I→IV→V→I every N seconds
+        if (chord_prog_mode != 0 &&
+            scale_quantizer.GetScale() != murmur::ScaleType::OFF) {
+            constexpr uint32_t intervals[3] = {0, 10000, 15000};
+            uint32_t interval = intervals[chord_prog_mode];
+            if (now - last_chord_change_ms >= interval) {
+                chord_index = (chord_index + 1) % 4;
+                scale_quantizer.SetChordOffset(CHORD_OFFSETS[chord_index]);
+                last_chord_change_ms = now;
+            }
+        }
 
         // Update boids simulation
         if (now - last_boids_update >= BOIDS_UPDATE_MS) {
@@ -245,19 +249,48 @@ void UpdateControls() {
                     // Base octave: clamp 1-5
                     scale_quantizer.SetBaseOctave(scale_quantizer.GetBaseOctave() + inc);
                     break;
+                case 3: {
+                    // Chord progression mode: cycle OFF → 10s → 15s → OFF
+                    chord_prog_mode = ((chord_prog_mode + inc) % 3 + 3) % 3;
+                    if (chord_prog_mode == 0) {
+                        // Turning off: reset to root (I)
+                        chord_index = 0;
+                        scale_quantizer.SetChordOffset(0);
+                    } else {
+                        // Turning on (or changing interval): start timer fresh
+                        last_chord_change_ms = System::GetNow();
+                    }
+                    break;
+                }
                 default:
                     break;
             }
         }
 
-        // Press: advance cursor; after octave exit back to Flock View
+        // Press: advance cursor; after chord prog row exit back to Flock View
         if (patch.encoder.RisingEdge()) {
-            if (settings_cursor < 2) {
+            if (settings_cursor < 3) {
                 settings_cursor++;
             } else {
                 settings_cursor = 0;
                 display.NextPage();  // exits SCALE_SETTINGS → FLOCK_VIEW
             }
+        }
+    } else if (display.GetPage() == murmur::DisplayPage::WAVE_SELECT) {
+        // On Wave Select page: encoder cycles waveform type, press goes to next page.
+        if (inc != 0) {
+            wave_type = ((wave_type + inc) % 3 + 3) % 3;
+#ifndef MURMUR_UI_ONLY
+            uint8_t wf = wave_type == 0 ? daisysp::Oscillator::WAVE_SIN :
+                         wave_type == 1 ? daisysp::Oscillator::WAVE_TRI :
+                                          daisysp::Oscillator::WAVE_POLYBLEP_SQUARE;
+            for (size_t i = 0; i < murmur::MAX_BOIDS; i++) {
+                voices[i].osc.SetWaveform(wf);
+            }
+#endif
+        }
+        if (patch.encoder.RisingEdge()) {
+            display.NextPage();
         }
     } else {
         // All other pages: encoder changes boid count + cycles page.
@@ -300,16 +333,29 @@ void UpdateControls() {
 
 void UpdateDisplay() {
     switch (display.GetPage()) {
-        case murmur::DisplayPage::FLOCK_VIEW:
-            display.DrawFlockView(flock, boids_params);
+        case murmur::DisplayPage::FLOCK_VIEW: {
+            // Build "DEGREE:NOTE" label (e.g. "IV:D#") when chord prog is active
+            const char* chord_label = nullptr;
+            static char chord_str[8];
+            if (chord_prog_mode != 0 &&
+                scale_quantizer.GetScale() != murmur::ScaleType::OFF) {
+                static const char* note_names[] = {
+                    "C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+                int chord_root = (scale_quantizer.GetRoot() + CHORD_OFFSETS[chord_index]) % 12;
+                snprintf(chord_str, sizeof(chord_str), "%s:%s",
+                         CHORD_NAMES[chord_index], note_names[chord_root]);
+                chord_label = chord_str;
+            }
+            display.DrawFlockView(flock, boids_params, chord_label);
             break;
+        }
 
         case murmur::DisplayPage::PARAMETERS:
             display.DrawParameters(boids_params, num_boids, freq_range);
             break;
 
-        case murmur::DisplayPage::WAVEFORM:
-            display.DrawWaveform(wave_display, WAVE_DISPLAY_SIZE);
+        case murmur::DisplayPage::WAVE_SELECT:
+            display.DrawWaveSelect(wave_type);
             break;
 
         case murmur::DisplayPage::SCALE_SETTINGS:
@@ -319,7 +365,9 @@ void UpdateDisplay() {
                 scale_quantizer.GetBaseOctave(),
                 settings_cursor,
                 span_octaves,
-                freq_range);
+                freq_range,
+                chord_prog_mode,
+                chord_index);
             break;
 
         default:

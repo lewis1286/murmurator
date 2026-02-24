@@ -22,7 +22,7 @@ enum class ScaleType : uint8_t {
 class ScaleQuantizer {
 public:
     // Default: root=A (9), Pentatonic Major, octave=3
-    ScaleQuantizer() : root_(9), scale_(ScaleType::PENTATONIC_MAJ), base_octave_(3) {}
+    ScaleQuantizer() : root_(9), scale_(ScaleType::PENTATONIC_MAJ), base_octave_(3), chord_offset_(0) {}
 
     void SetRoot(int root) {
         if (root < 0)  root = 0;
@@ -38,9 +38,15 @@ public:
         base_octave_ = oct;
     }
 
-    int       GetRoot()       const { return root_; }
-    ScaleType GetScale()      const { return scale_; }
-    int       GetBaseOctave() const { return base_octave_; }
+    // Semitone offset applied on top of root_ for chord progression (0, 5, 7 for I/IV/V).
+    void SetChordOffset(int semitones) {
+        chord_offset_ = ((semitones % 12) + 12) % 12;
+    }
+
+    int       GetRoot()        const { return root_; }
+    ScaleType GetScale()       const { return scale_; }
+    int       GetBaseOctave()  const { return base_octave_; }
+    int       GetChordOffset() const { return chord_offset_; }
 
     // Quantize y (0-1) to a frequency.
     // ScaleType::OFF: linear mapping (current behaviour).
@@ -66,7 +72,9 @@ public:
         int scale_degree  = degree % n_notes;
 
         // MIDI note: C0=12, C1=24, C2=36, C3=48, C4=60, A4=69
-        int midi = 12 + 12 * base_octave_ + root_
+        // chord_offset_ shifts the effective root for I/IV/V chord progressions.
+        int effective_root = (root_ + chord_offset_) % 12;
+        int midi = 12 + 12 * base_octave_ + effective_root
                  + octave_offset * 12 + intervals[scale_degree];
 
         return 440.0f * powf(2.0f, static_cast<float>(midi - 69) / 12.0f);
@@ -76,6 +84,7 @@ private:
     int       root_;
     ScaleType scale_;
     int       base_octave_;
+    int       chord_offset_;  // semitone shift for chord progression (0=I, 5=IV, 7=V)
 
     // Function-local statics: defined once per TU, no ODR issues in header.
     static const int* GetIntervals(ScaleType scale, int& n_notes) {

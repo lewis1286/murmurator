@@ -10,7 +10,7 @@ namespace murmur {
 enum class DisplayPage {
     FLOCK_VIEW,      // Boid visualization
     PARAMETERS,      // Parameter values
-    WAVEFORM,        // Audio waveform
+    WAVE_SELECT,     // Waveform type selection
     SCALE_SETTINGS,  // Scale quantizer settings
     NUM_PAGES
 };
@@ -25,12 +25,17 @@ public:
     void NextPage();
     DisplayPage GetPage() const { return current_page_; }
 
-    void DrawFlockView(const BoidsFlock& flock, const BoidsParams& params);
+    // chord_label: nullptr or "" when inactive; "I"/"IV"/"V" when chord prog is running.
+    void DrawFlockView(const BoidsFlock& flock, const BoidsParams& params,
+                       const char* chord_label = nullptr);
     void DrawParameters(const BoidsParams& params, size_t num_boids,
                         float freq_range);
-    void DrawWaveform(const float* buffer, size_t size);
+    // wave_type: 0=SINE, 1=TRIANGLE, 2=SQUARE
+    void DrawWaveSelect(int wave_type);
+    // chord_prog_mode: 0=OFF, 1=10s, 2=15s. chord_index: 0-3 (I/IV/V/I).
     void DrawScaleSettings(int root, int scale_idx, int base_oct,
-                           int cursor, int span_oct, float freq_range);
+                           int cursor, int span_oct, float freq_range,
+                           int chord_prog_mode, int chord_index);
 
     void Clear();
     void Update();
