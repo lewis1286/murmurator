@@ -3,6 +3,8 @@
 #include "audio/osc_voice.h"
 #include "audio/simple_reverb.h"
 #include "audio/scale_quantizer.h"
+#include "audio/chord_progression.h"
+#include "audio/axis_mapping.h"
 #include "boids/boids.h"
 #include "ui/display.h"
 #include "ui/led_grid.h"
@@ -40,15 +42,10 @@ float freq_range = 400.0f;
 
 // Scale quantizer (default: root=A, OFF, octave=3)
 murmur::ScaleQuantizer scale_quantizer;
+murmur::ChordProgression chord_prog;
+murmur::AxisMapping axis_mapping;  // default: x=pan, y=freq, z=amp
 int settings_cursor = 0;  // 0=root, 1=scale, 2=base_octave, 3=chord_prog
 int span_octaves    = 3;  // octave span when scale mode is active
-
-// Chord progression: I (root), IV (root+5), V (root+7), I (root) cycling every N seconds
-constexpr int   CHORD_OFFSETS[4] = {0, 5, 7, 0};
-const char* const CHORD_NAMES[4] = {"I", "IV", "V", "I"};
-int      chord_prog_mode     = 0;        // 0=OFF, 1=10s interval, 2=15s interval
-int      chord_index         = 0;        // position in CHORD_OFFSETS[4]
-uint32_t last_chord_change_ms = 0;
 
 // Audio parameters
 constexpr float FREQ_MIN = 200.0f;
@@ -97,7 +94,6 @@ static void AudioCallback(AudioHandle::InputBuffer in,
 int main(void) {
     patch.Init();
     sample_rate = patch.AudioSampleRate();
-    last_chord_change_ms = System::GetNow();
 
     // Initialize oscillator voices and reverb
 #ifndef MURMUR_UI_ONLY
@@ -137,17 +133,7 @@ int main(void) {
 
         uint32_t now = System::GetNow();
 
-        // Chord progression timer — advance I→IV→V→I every N seconds
-        if (chord_prog_mode != 0 &&
-            scale_quantizer.GetScale() != murmur::ScaleType::OFF) {
-            constexpr uint32_t intervals[3] = {0, 10000, 15000};
-            uint32_t interval = intervals[chord_prog_mode];
-            if (now - last_chord_change_ms >= interval) {
-                chord_index = (chord_index + 1) % 4;
-                scale_quantizer.SetChordOffset(CHORD_OFFSETS[chord_index]);
-                last_chord_change_ms = now;
-            }
-        }
+        chord_prog.Update(now, scale_quantizer);
 
         // Update boids simulation
         if (now - last_boids_update >= BOIDS_UPDATE_MS) {
@@ -171,28 +157,26 @@ int main(void) {
 }
 
 void UpdateVoicesFromBoids() {
-    float max_amp_per_voice = MAX_AMP_TOTAL / static_cast<float>(num_boids);
+    murmur::MappingContext ctx = {
+        scale_quantizer,
+        FREQ_MIN,
+        freq_range,
+        span_octaves,
+        MAX_AMP_TOTAL / static_cast<float>(num_boids)
+    };
 
     for (int i = 0; i < num_boids; i++) {
         const murmur::Boid& boid = flock.GetBoid(i);
+        murmur::VoiceParams vp = MapBoidToVoice(boid.position, axis_mapping, ctx);
 
-        // y -> frequency (via scale quantizer; falls through to linear when OFF)
-        float freq = scale_quantizer.Quantize(
-            boid.position.y, FREQ_MIN, freq_range, span_octaves);
-
-        // z -> amplitude: z=0 loud/close, z=1 quiet/far, with floor so voices never silence
-        constexpr float AMP_FLOOR = 0.2f;  // minimum as fraction of max_amp_per_voice
-        float amp = (AMP_FLOOR + (1.0f - boid.position.z) * (1.0f - AMP_FLOOR)) * max_amp_per_voice;
-
-        // x -> pan (-1 to +1)
-        float pan = boid.position.x * 2.0f - 1.0f;
-
-        voices[i].SetParams(freq, amp, pan, boid.position.z);
+        // boid.position.z is passed as depth hint regardless of axis assignment —
+        // OscVoice uses it for filter brightness and reverb send scaling.
+        voices[i].SetParams(vp.freq, vp.amp, vp.pan, boid.position.z);
         voices[i].SetMorph(morph);
         // In scale mode, snap freq immediately so boids land on discrete notes
         // rather than gliding through them (amp/pan still smooth normally).
         if (scale_quantizer.GetScale() != murmur::ScaleType::OFF) {
-            voices[i].SnapFreq(freq);
+            voices[i].SnapFreq(vp.freq);
         }
         voices[i].UpdateSmoothing();
     }
@@ -245,19 +229,9 @@ void UpdateControls() {
                     // Base octave: clamp 1-5
                     scale_quantizer.SetBaseOctave(scale_quantizer.GetBaseOctave() + inc);
                     break;
-                case 3: {
-                    // Chord progression mode: cycle OFF → 10s → 15s → OFF
-                    chord_prog_mode = ((chord_prog_mode + inc) % 3 + 3) % 3;
-                    if (chord_prog_mode == 0) {
-                        // Turning off: reset to root (I)
-                        chord_index = 0;
-                        scale_quantizer.SetChordOffset(0);
-                    } else {
-                        // Turning on (or changing interval): start timer fresh
-                        last_chord_change_ms = System::GetNow();
-                    }
+                case 3:
+                    chord_prog.Increment(inc, System::GetNow(), scale_quantizer);
                     break;
-                }
                 default:
                     break;
             }
@@ -314,18 +288,9 @@ void UpdateControls() {
 void UpdateDisplay() {
     switch (display.GetPage()) {
         case murmur::DisplayPage::FLOCK_VIEW: {
-            // Build "DEGREE:NOTE" label (e.g. "IV:D#") when chord prog is active
-            const char* chord_label = nullptr;
             static char chord_str[8];
-            if (chord_prog_mode != 0 &&
-                scale_quantizer.GetScale() != murmur::ScaleType::OFF) {
-                static const char* note_names[] = {
-                    "C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
-                int chord_root = (scale_quantizer.GetRoot() + CHORD_OFFSETS[chord_index]) % 12;
-                snprintf(chord_str, sizeof(chord_str), "%s:%s",
-                         CHORD_NAMES[chord_index], note_names[chord_root]);
-                chord_label = chord_str;
-            }
+            const char* chord_label = chord_prog.BuildLabel(scale_quantizer, chord_str, sizeof(chord_str))
+                                      ? chord_str : nullptr;
             display.DrawFlockView(flock, boids_params, chord_label);
             break;
         }
@@ -342,8 +307,8 @@ void UpdateDisplay() {
                 settings_cursor,
                 span_octaves,
                 freq_range,
-                chord_prog_mode,
-                chord_index);
+                chord_prog.GetMode(),
+                chord_prog.GetIndex());
             break;
 
         default:
