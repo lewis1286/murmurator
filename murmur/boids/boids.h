@@ -12,10 +12,10 @@ constexpr size_t MAX_BOIDS = 16;
 constexpr size_t LED_GRID_DIM = 4;  // 4x4 LED grid for density visualization
 
 // Boundary avoidance constants
-constexpr float BOUNDARY_MARGIN_XY  = 0.25f;  // margin on x and y edges (wider = earlier turns)
+constexpr float BOUNDARY_MARGIN_XY  = 0.40f;  // margin on x and y edges (wider = earlier turns)
 constexpr float BOUNDARY_MARGIN_Z_LO = 0.10f;  // 5% margin at z=0 (allow near-silence)
 constexpr float BOUNDARY_MARGIN_Z_HI = 0.15f;  // 15% margin at z=1 (avoid sustained max amp)
-constexpr float BOUNDARY_FORCE_XY   = 0.16f;   // 4x max_force for x/y boundaries
+constexpr float BOUNDARY_FORCE_XY   = 0.60f;   // strong enough to overcome wander mid-margin
 constexpr float BOUNDARY_FORCE_Z    = 0.08f;   // 2x max_force for z boundaries
 
 // Wander: smooth random turning that keeps boids curving through open space

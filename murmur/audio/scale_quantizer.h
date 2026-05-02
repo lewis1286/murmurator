@@ -16,13 +16,14 @@ enum class ScaleType : uint8_t {
     PENTATONIC_MIN = 5,
     LYDIAN         = 6,
     MIXOLYDIAN     = 7,
-    COUNT          = 8
+    CHORD_MAJ      = 8,
+    COUNT          = 9
 };
 
 class ScaleQuantizer {
 public:
-    // Default: root=A (9), Pentatonic Major, octave=3
-    ScaleQuantizer() : root_(9), scale_(ScaleType::PENTATONIC_MAJ), base_octave_(3), chord_offset_(0) {}
+    // Default: root=A (9), Chord Major, octave=3
+    ScaleQuantizer() : root_(9), scale_(ScaleType::CHORD_MAJ), base_octave_(3), chord_offset_(0) {}
 
     void SetRoot(int root) {
         if (root < 0)  root = 0;
@@ -95,6 +96,7 @@ private:
         static const int pent_min[]   = {0, 3, 5, 7, 10};
         static const int lydian[]     = {0, 2, 4, 6, 7, 9, 11};
         static const int mixolydian[] = {0, 2, 4, 5, 7, 9, 10};
+        static const int chord_maj[]  = {0, 4, 7, 11};  // root, M3, P5, M7
 
         switch (scale) {
             case ScaleType::MAJOR:          n_notes = 7; return major;
@@ -104,6 +106,7 @@ private:
             case ScaleType::PENTATONIC_MIN: n_notes = 5; return pent_min;
             case ScaleType::LYDIAN:         n_notes = 7; return lydian;
             case ScaleType::MIXOLYDIAN:     n_notes = 7; return mixolydian;
+            case ScaleType::CHORD_MAJ:      n_notes = 4; return chord_maj;
             default:                        n_notes = 7; return major;
         }
     }

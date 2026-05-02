@@ -180,7 +180,7 @@ void Display::DrawScaleSettings(int root, int scale_idx, int base_oct,
     // Local statics — same TU only, no ODR issues.
     static const char* root_names[]  = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
     static const char* scale_names[] = {"Linear","Major","Nat.Minor","Dorian",
-                                         "Pent.Maj","Pent.Min","Lydian","Mixo"};
+                                         "Pent.Maj","Pent.Min","Lydian","Mixo","ChordMaj"};
     static const char* chord_names[] = {"I", "IV", "V", "I"};
     static const char* prog_labels[] = {"OFF", "10s", "15s"};
 

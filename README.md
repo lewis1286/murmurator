@@ -33,6 +33,15 @@ A [Daisy Patch](https://www.electro-smith.com/daisy/patch) module where a flock 
 | Press (normal pages) | Cycle display pages |
 | Press (Scale Settings) | Advance cursor through settings / exit |
 
+## Outputs
+
+| Output | Signal |
+|--------|--------|
+| OUT 1 | Stereo left mix (all voices, panned) + reverb |
+| OUT 2 | Stereo right mix (all voices, panned) + reverb |
+| OUT 3 | Passthrough from IN 3 |
+| OUT 4 | Passthrough from IN 4 |
+
 ## Display Pages
 
 1. **Flock View** `[1/3]` — Boid triangles; size varies with z (amplitude); low freq at bottom
