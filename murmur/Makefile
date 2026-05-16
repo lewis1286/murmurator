@@ -8,8 +8,8 @@ CPP_SOURCES = MurmurBoids.cpp \
               ui/led_grid.cpp
 
 # Library Locations
-LIBDAISY_DIR = ../libDaisy
-DAISYSP_DIR = ../DaisySP
+LIBDAISY_DIR = ../../libDaisy
+DAISYSP_DIR = ../../DaisySP
 
 # Optimized build with debug symbols
 OPT = -O2 -g

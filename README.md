@@ -79,25 +79,28 @@ When scale is set to Linear, frequencies map continuously across the Hz range. A
 - Make
 - Debugger probe (ST-Link or compatible) for flashing
 
-### Clone with submodules
+### Dependencies
 
-```bash
-git clone --recursive https://github.com/lewis1286/murmurator.git
-cd murmurator
+This project requires **libDaisy** and **DaisySP** to live as sibling directories alongside `murmurator/` — one level up, not inside this repo.
+
+```
+daisy_patch/           ← shared parent directory
+├── libDaisy/          ← clone here
+├── DaisySP/           ← clone here
+└── murmurator/        ← this repo
+    └── murmur/
 ```
 
-Or if already cloned:
-```bash
-git submodule update --init --recursive
-```
-
-### Build libraries (first time only)
+**One-time setup (run from the shared parent directory):**
 
 ```bash
-cd libDaisy && make
-cd ../DaisySP && make
-cd ..
+git clone https://github.com/electro-smith/libDaisy.git
+git clone https://github.com/electro-smith/DaisySP.git
+cd libDaisy && git submodule update --init --recursive && make && cd ..
+cd DaisySP && make && cd ..
 ```
+
+You only need to do this once — all Daisy projects in the same parent directory share these builds.
 
 ### Build and flash
 
@@ -128,10 +131,11 @@ make program
 ## Project Structure
 
 ```
-murmurator/
-├── libDaisy/                      # Hardware abstraction (submodule)
-├── DaisySP/                       # DSP library (submodule)
-└── murmur/
+daisy_patch/
+├── libDaisy/                      # Shared hardware abstraction library
+├── DaisySP/                       # Shared DSP library
+└── murmurator/
+    └── murmur/
     ├── MurmurBoids.cpp            # Main application
     ├── Makefile
     ├── audio/
